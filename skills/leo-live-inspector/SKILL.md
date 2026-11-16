@@ -1,6 +1,6 @@
 ---
 name: leo-live-inspector
-description: 线上与测试环境全场景数据探查、日志检索、TraceId 链路回溯、Apollo 实时配置查询与单项发布轨迹追溯（线上/测试/预发）、测试环境配置安全修改发布、线上变更参谋建议、ES 搜索云平台双环境治理与索引探查（脱离项目目录直连 search.ke.com 拉取授权索引目录、精准 Mapping 字段语义解析、多维检索、测试环境安全 CRUD 预审与生产环境物理只读拦截）、Dinsight 自然语言大数据探查、以及 Luke 权限中心双环境治理（约束/权限点/角色/人员两阶段风控配置与线上/删除高危拦截、员工权限全景画像与双人三层深度 Diff 对比）。涵盖核心能力：(1) FAST / Kibana 线上日志毫秒级极速直连检索、入参出参抓取与 500 异常排查；(2) Apollo 配置中心免鉴权秒级直连探查、单项配置发布轨迹追溯与版本变迁对比、测试环境两阶段安全修改发布、以及生产环境配置变更参谋建议单自动生成；(3) TraceId 全链路时序回溯与 Mermaid 交互图自动生成；(4) ES 索引自学习与 Chrome 扩展探针自愈；(5) ES 搜索云平台双环境治理与索引探查（脱离项目目录自动同步 search.ke.com 授权目录、Mapping 字段解析、测试环境 CRUD 预审与生产物理只读拦截）；(6) Dinsight 自然语言大数据探查；(7) CI/CD 构建与测试环境部署闭环；(8) Luke 权限中心双环境治理；(9) 通用 Chrome 浏览器操作（页面测试、数据抓取、填表导出等），并按页面沉淀可整段执行的操作流程，下次同类任务直接复用。支持本地排查流程的保存、检索复用与更新。
+description: 线上与测试环境全场景数据探查、日志检索、TraceId 链路回溯、Apollo 实时配置查询与单项发布轨迹追溯（线上/测试/预发）、测试环境配置安全修改发布、线上变更参谋建议、ES 搜索云平台双环境治理与索引探查（脱离项目目录直连 search.ke.com 拉取授权索引目录、精准 Mapping 字段语义解析、多维检索、测试环境安全 CRUD 预审与生产环境物理只读拦截）、Dinsight 自然语言大数据探查、Luke 权限中心双环境治理（约束/权限点/角色/人员两阶段风控配置与线上/删除高危拦截、员工权限全景画像与双人三层深度 Diff 对比）、以及白鸽网关三环境治理与路由探查（测试/预发/生产三环境微服务网关登记、路由组与子路由规则解析、服务管理员授权与跨环境三态对照 check）。涵盖核心能力：(1) FAST / Kibana 线上日志毫秒级极速直连检索、入参出参抓取与 500 异常排查；(2) Apollo 配置中心免鉴权秒级直连探查、单项配置发布轨迹追溯与版本变迁对比、测试环境两阶段安全修改发布、以及生产环境配置变更参谋建议单自动生成；(3) TraceId 全链路时序回溯与 Mermaid 交互图自动生成；(4) ES 索引自学习与 Chrome 扩展探针自愈；(5) ES 搜索云平台双环境治理与索引探查（脱离项目目录自动同步 search.ke.com 授权目录、Mapping 字段解析、测试环境 CRUD 预审与生产物理只读拦截）；(6) Dinsight 自然语言大数据探查；(7) CI/CD 构建与测试环境部署闭环；(8) Luke 权限中心双环境治理；(9) 通用 Chrome 浏览器操作（页面测试、数据抓取、填表导出等），并按页面沉淀可整段执行的操作流程，下次同类任务直接复用；(10) 白鸽网关三环境探查与治理（服务登记、路由组、子路由与跨环境三态对照）。支持本地排查流程的保存、检索复用与更新。
 ---
 
 # 🔍 Leo Live Inspector (线上数据探查、日志检索、Trace 链路透视与 Apollo 配置中枢)
@@ -16,6 +16,7 @@ description: 线上与测试环境全场景数据探查、日志检索、TraceId
 8. **🛡️ Luke 权限中心双环境治理（约束、权限点、角色与人员画像/双人三层 Diff）**：支持测试环境 `test-luke.ke.com` (`-e test`) 与线上生产环境 `luke.ke.com` (`-e prod`)（`scripts/luke_query.js` 与 `scripts/luke_modify.js`），支持自然语言全流程探查与配置约束（Ext）、权限点（Perm）、角色（Role）与绑定人员；支持**单人权限全景画像 (`user <ucid|name>`)** 与 **双人三层深度对比 (`diff-user <user1> <user2>`)**，具备约束自动取并集计算、角色/权限点/数据约束范围三层渐进式对比能力，直接输出角色 Code、权限 Code、约束 Code、关联 API 路径与 Luke Portal 控制台直达链接；坚守**两阶段风控原则**：查询操作直接执行；修改已有项、删除角色/权限点、从权限点中剔除接口/服务，以及线上生产环境的一切写操作，强制执行 Pre-flight 输出 Diff 对比与受影响人员/角色分析，**必须等待用户明确确认**后再追加 `--confirm` 执行发布并校验；
 9. **🌐 通用浏览器操作与页面流程沉淀**：通过随附 CLI（`scripts/cli/index.mjs`）操作用户真实的 Chrome，做页面测试、数据抓取、填表导出、截图和抓包；每个页面沉淀一份手册（地址、元素定位、可整段执行的操作流程），下次同类任务直接复用；线上一律只读（见[第 8 节](#-8-通用浏览器操作)）。
 10. **🔎 ES 搜索云平台双环境治理与索引探查（脱离项目目录、字段语义、测试 CRUD）**：参照服务云查 MySQL 范式，通过内置 Chrome 扩展中继自动同步 `search.ke.com` 登录态并缓存当前工号已授权的全部 ES 索引目录（`scripts/es_query.js` 与 `scripts/es_modify.js`）；支持脱离本地项目目录直接按 `serviceId` 或索引名关键词查精准 Mapping 字段结构/数据源上下文/样本值与多维度检索（兼容标准检索网关 `/search` 与 ES8 原生 DSL `/search/es`）；【测试环境】通过 `detailBusinessQA` / `detailBusinessRD` 自动获取测试配置并支持安全 CRUD（含 Pre-flight Diff 预审机制与写入回查校验）；【生产环境】纯正则 `TEST_PATTERNS` 判定，非测试环境严格物理死锁只读保护，杜绝误操作。
+11. **🕊️ 白鸽网关三环境探查与治理（服务登记、路由组、子路由与跨环境三态对照）**：涵盖测试环境 `life-fe-baige-node.offline-beta.ttb.test.ke.com` (`-e test`)、预发环境 `preview.baige.ke.com` (`-e preview`) 与线上生产环境 `baige.ke.com` (`-e prod`)（`scripts/baige_query.js` 与 `scripts/baige_modify.js`）；支持服务登记查询、详情与 Eureka/域名转发配置探查、路由组与子路由规则解析、服务授权管理员查询与添加/删除、以及跨测试/预发/生产三环境的三态对照与差异分析（`check <serviceId>`）。同样坚守两阶段风控原则，线上及删除管理员等高危操作强制 Pre-flight 试运行，明确确认后方可执行。
 
 > ⚠️ **【核心执行原则：AI 全自动后台执行，严禁要求用户手动运行命令】**
 > - **底层脚本（`scripts/fast_query.js`、`scripts/apollo_modify.js`、`scripts/ci_deploy.js`、`scripts/feci_deploy.js`、`scripts/luke_query.js` 与 `scripts/luke_modify.js` 等）是 AI 专用的后台探查、交付与运维工具**。
@@ -130,6 +131,14 @@ description: 线上与测试环境全场景数据探查、日志检索、TraceId
 | **“在线上/生产环境修改或删除 ES 数据”** | **执行风控红线拦截 (物理阻断直写)** | **严禁自动化线上写入！** 触发 `assertWritePermitted` 拦截，提示线上仅支持只读查询 |
 | **“在这个页面上抓数据 / 测一下 / 导出 / 按上次的方式再来一遍”** | `node scripts/knowledge.js search '<域名> <路径关键段>' --kind page`，命中则整段执行对应流程，未命中则正常操作（见 [8.1](#81-页面操作流程沉淀与复用)） | 本次任务结果（数据、截图、检查结论）；有摸索过程时询问是否沉淀 |
 | **“把这个页面操作记下来 / 补进页面手册”** | `node scripts/knowledge.js save --file <JSON> --expected-version <版本> --kind page` | 保存后回读，报告手册名称、版本与路径 |
+| **“白鸽网关登记了哪些微服务 / 查下网关服务列表”** | `node scripts/baige_query.js apps [-q <kw>] [-e test|preview|prod]` | 格式化微服务网关登记列表、转发方式与创建人表格 |
+| **“查下 utopia-scs-algo 在白鸽网关上的配置”** | `node scripts/baige_query.js detail utopia-scs-algo [-e test|preview|prod]` | 微服务网关详细属性、转发地址、授权管理员列表及 Web 直达链接 |
+| **“查看算法服务在白鸽网关上的路由组与转发规则”** | `node scripts/baige_query.js routes utopia-scs-algo [-e test|preview|prod]` | 路由组层级树、前缀、登录校验与子路由 URI 规则 |
+| **“查看算法服务的白鸽网关管理员列表”** | `node scripts/baige_query.js users utopia-scs-algo [-e test|preview|prod]` | 列出授权管理员名单与当前工号编辑权限状态 |
+| **“对比 utopia-scs-algo 在测试/预发/生产三环境的网关状态”** | `node scripts/baige_query.js check utopia-scs-algo` | **跨环境三态对照**，并发探查测试、预发与生产服务登记、转发目标与路由数差异看板 |
+| **“在测试环境给 utopia-scs-algo 添加网关管理员 30560224”** | **阶段 1 (Pre-flight 预审)**：<br>`node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test` | 展示添加管理员 Pre-flight 预审信息，**停下等待用户确认** |
+| **用户明确确认添加网关管理员** | **阶段 2 (正式提交)**：<br>`node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test --confirm` | 正式提交请求并回查校验生效状态 |
+| **“在测试环境移除网关管理员 30560224”** | **阶段 1 (Pre-flight 预审)**：<br>`node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test` | 🔴 触发高危操作预警与人数核验，**停下等待用户确认** |
 
 ---
 
@@ -872,6 +881,63 @@ node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"bat
 
 # 测试环境删除文档
 node scripts/es_modify.js 门锁 --action delete --id "10001" -e test --confirm
+```
+
+---
+
+## 🕊️ 11. 白鸽网关三环境探查与治理 (scripts/baige_query.js & scripts/baige_modify.js)
+
+支持**测试环境**（`http://life-fe-baige-node.offline-beta.ttb.test.ke.com`，`-e test`）、**预发环境**（`http://preview.baige.ke.com`，`-e preview`）与**线上生产环境**（`https://baige.ke.com`，`-e prod`）三轨体系的微服务网关登记、路由组、子路由规则以及服务授权管理员探查与治理。
+
+### 11.1 核心特性与架构机制
+1. **纯 HTTP REST 极速直连**：针对测试/预发/生产三环境自动选择通讯协议（`http:` / `https:`）与端口，免除繁琐网络开销；
+2. **多环境登录态自动中继与持久化**：支持从随附 Chrome 扩展自动中继获取凭据，并分别落盘至 `~/.shrimp/skills/live-inspector/` 下的 `test_baige_cookie.json`、`prev_baige_cookie.json` 与 `baige_cookie.json`；
+3. **跨环境三态对照 (`check <serviceId>`)**：并发探查测试、预发与生产三环境的服务登记状态、应用 ID、Eureka 转发目标、路由组总数与当前用户管理权限，直接输出直观对照看板与官方 Web 直达链接；
+4. **严格生产与预发只读物理死锁**：**预发环境 (preview) 与生产环境 (prod) 严格禁止执行任何写操作与路由变更**，代码级物理阻断！所有网关配置与路由修改仅允许在测试环境 (`-e test`) 中进行；测试环境同样坚守两阶段风控原则，默认 Pre-flight 试运行计算 Diff，严格要求用户明确确认后再带 `--confirm` 提交。
+
+### 11.2 常用 CLI 命令速查
+
+#### 1. 路由与网关只读探查 (`scripts/baige_query.js`)
+```bash
+# 查询已登记微服务列表 (默认 prod 生产环境，支持 -e test / preview)
+node scripts/baige_query.js apps
+node scripts/baige_query.js apps -q algo -e test
+node scripts/baige_query.js apps -q algo -e preview
+
+# 查看指定微服务的网关登记详情 (支持 serviceId 或纯数字应用 ID)
+node scripts/baige_query.js detail utopia-scs-algo
+node scripts/baige_query.js detail 144 -e prod
+node scripts/baige_query.js detail utopia-scs-algo -e test
+
+# 🛣️ 深度探查服务的网关路由信息 (路由组层级树、前缀、登录校验状态、下属子路由 URI 规则与所属泳道)
+node scripts/baige_query.js routes utopia-scs-algo              # 查线上生产环境路由
+node scripts/baige_query.js routes utopia-scs-algo -e preview   # 查预发环境路由
+node scripts/baige_query.js routes utopia-scs-algo -e test      # 查测试环境路由
+node scripts/baige_query.js routes utopia-scs-algo --json       # 导出结构化路由 JSON 供排障比对
+
+# 查看服务的已授权管理员列表与当前账号权限状态
+node scripts/baige_query.js users utopia-scs-algo
+
+# 🔥 跨环境三态对照：并发检查服务在测试、预发与生产的登记、转发与路由状态
+node scripts/baige_query.js check utopia-scs-algo
+```
+
+#### 2. 测试环境变更引擎与风控 (仅限 -e test，预发/线上物理阻断)
+```bash
+# 预发与线上生产环境执行写操作会被物理阻断：
+# node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e prod -> 🚨 自动拦截
+
+# 测试环境添加管理员 (阶段 1: Pre-flight 试运行)
+node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test
+# 用户确认后正式提交 (阶段 2: 带 --confirm)
+node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test --confirm
+
+# 🔴 高危操作：移除服务管理员 (需用户二次确认)
+node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test
+node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test --confirm
+
+# 修改测试环境服务域名配置
+node scripts/baige_modify.js update-domain 6836 api.algo.ke.com,algo.ke.com -e test --confirm
 ```
 
 ---

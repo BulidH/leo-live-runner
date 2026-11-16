@@ -205,6 +205,48 @@ export function saveLukeProdCookie(cookieStr) {
   return saveLukeCookie({ env: 'prod', cookieStr });
 }
 
+/** 白鸽网关系统 Cookie (支持测试环境、预发环境与线上生产环境) */
+export function loadBaigeCookie({ env = 'prod' } = {}) {
+  const normEnv = (env || 'prod').toLowerCase();
+  const isTest = normEnv === 'test' || normEnv === 'dev' || normEnv === 'offline-beta';
+  const isPreview = normEnv === 'preview' || normEnv === 'prev';
+
+  if (isTest) {
+    return loadCookie({
+      envVar: 'BAIGE_TEST_COOKIE',
+      jsonFileName: 'test_baige_cookie.json',
+      targetUrl: 'http://life-fe-baige-node.offline-beta.ttb.test.ke.com',
+      downloadCandidates: ['cookies-baige-test.txt', 'cookies-test-baige.txt']
+    });
+  }
+  if (isPreview) {
+    return loadCookie({
+      envVar: 'BAIGE_PREVIEW_COOKIE',
+      jsonFileName: 'prev_baige_cookie.json',
+      targetUrl: 'http://preview.baige.ke.com',
+      downloadCandidates: ['cookies-baige-preview.txt', 'cookies-preview-baige.txt']
+    });
+  }
+  return loadCookie({
+    envVar: 'BAIGE_PROD_COOKIE',
+    jsonFileName: 'baige_cookie.json',
+    targetUrl: 'https://baige.ke.com',
+    downloadCandidates: ['cookies-baige.ke.com.txt', 'cookies-baige.txt']
+  });
+}
+
+export function saveBaigeCookie({ env = 'prod', cookieStr } = {}) {
+  const normEnv = (env || 'prod').toLowerCase();
+  const isTest = normEnv === 'test' || normEnv === 'dev' || normEnv === 'offline-beta';
+  const isPreview = normEnv === 'preview' || normEnv === 'prev';
+
+  const jsonFileName = isTest ? 'test_baige_cookie.json' : (isPreview ? 'prev_baige_cookie.json' : 'baige_cookie.json');
+  return saveCookie({
+    jsonFileName,
+    cookieStr
+  });
+}
+
 /** Paoding Loki 容器日志 Cookie */
 export function loadPaodingCookie() {
   return loadCookie({
