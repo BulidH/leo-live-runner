@@ -434,3 +434,40 @@ export function saveSearchCookie(cookieStr) {
     cookieStr
   });
 }
+
+/** UC 组织与人员角色管理中心 (test3-uc.admin.ke.com / test-uc-relation-admin.ke.com) Cookie 凭证 */
+export function loadUcCookie({ env = 'test' } = {}) {
+  const normEnv = (env || 'test').toLowerCase();
+  if (normEnv === 'prod' || normEnv === 'production') {
+    throw new Error('UC 线上生产环境 (prod) 暂未接入，当前仅支持测试环境 (-e test)');
+  }
+  return loadCookie({
+    envVar: 'UC_TEST_COOKIE',
+    jsonFileName: 'test_uc_cookie.json',
+    targetUrl: 'http://test3-uc.admin.ke.com/',
+    downloadCandidates: [
+      'cookies-test3-uc.admin.ke.com.txt',
+      'cookies-test-uc.txt',
+      'cookies.txt'
+    ]
+  });
+}
+
+export function saveUcCookie({ env = 'test', cookieStr } = {}) {
+  const normEnv = (env || 'test').toLowerCase();
+  if (normEnv === 'prod' || normEnv === 'production') {
+    throw new Error('UC 线上生产环境 (prod) 暂未接入，当前仅支持测试环境 (-e test)');
+  }
+  return saveCookie({
+    jsonFileName: 'test_uc_cookie.json',
+    cookieStr
+  });
+}
+
+export function loadUcTestCookie() {
+  return loadUcCookie({ env: 'test' });
+}
+
+export function saveUcTestCookie(cookieStr) {
+  return saveUcCookie({ env: 'test', cookieStr });
+}
