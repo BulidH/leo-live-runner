@@ -491,3 +491,57 @@ export function loadUcTestCookie() {
 export function saveUcTestCookie(cookieStr) {
   return saveUcCookie({ env: 'test', cookieStr });
 }
+
+/** 灯塔 ARMS 前端监控平台 (arms.fee.lianjia.com) Cookie 凭证 */
+export function loadArmsCookie() {
+  return loadCookie({
+    envVar: 'ARMS_COOKIE',
+    jsonFileName: 'arms_cookie.json',
+    targetUrl: 'http://arms.fee.lianjia.com/',
+    downloadCandidates: [
+      'cookies-arms.fee.lianjia.com.txt',
+      'cookies-arms.txt',
+      'cookies.txt'
+    ]
+  });
+}
+
+export function saveArmsCookie(cookieStr) {
+  return saveCookie({
+    jsonFileName: 'arms_cookie.json',
+    cookieStr
+  });
+}
+
+/** 灯塔 ARMS 开放平台 API Key (x-api-key) 凭证 */
+export function loadArmsApiKey() {
+  if (process.env.ARMS_API_KEY) {
+    return process.env.ARMS_API_KEY.trim();
+  }
+  const keyFile = path.join(SHRIMP_LIVE_DIR, 'arms_api_key.json');
+  if (fs.existsSync(keyFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
+      const val = data.apiKey || data.api_key || data.key || data.token || data['x-api-key'] || '';
+      return String(val).trim();
+    } catch {}
+  }
+  return '';
+}
+
+export function saveArmsApiKey(apiKey, extraFields = {}) {
+  const cleanKey = String(apiKey || '').trim();
+  if (!cleanKey) return false;
+  ensureShrimpLiveDir();
+  const keyFile = path.join(SHRIMP_LIVE_DIR, 'arms_api_key.json');
+  try {
+    writeCredentialJson(keyFile, {
+      apiKey: cleanKey,
+      updated_at: new Date().toISOString(),
+      ...extraFields
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

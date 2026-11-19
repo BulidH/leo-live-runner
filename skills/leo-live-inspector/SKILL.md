@@ -1,6 +1,6 @@
 ---
 name: leo-live-inspector
-description: 线上与测试环境全场景数据探查、日志检索、TraceId 链路回溯、Apollo 实时配置查询与单项发布轨迹追溯（线上/测试/预发）、测试环境配置安全修改发布、线上变更参谋建议、ES 搜索云平台双环境治理与索引探查（脱离项目目录直连 search.ke.com 拉取授权索引目录、精准 Mapping 字段语义解析、多维检索、测试环境安全 CRUD 预审与生产环境物理只读拦截）、Dinsight 自然语言大数据探查、Luke 权限中心双环境治理（约束/权限点/角色/人员两阶段风控配置与线上/删除高危拦截、员工权限全景画像与双人三层深度 Diff 对比）、白鸽网关三环境治理与路由探查（测试/预发/生产三环境微服务网关登记、路由组与子路由规则解析、服务管理员授权与跨环境三态对照 check）、以及 UC 组织与人员角色管理中心测试环境全量探查与角色治理（员工组织/职位/主兼岗/关系角色全景画像、按城市/组织/角色找测试账号、组织树与上下级负责人探查、人-人/人-组织/组织-组织关系与测试环境角色两阶段安全修改）。涵盖核心能力：(1) FAST / Kibana 线上日志毫秒级极速直连检索、入参出参抓取与 500 异常排查；(2) Apollo 配置中心免鉴权秒级直连探查、单项配置发布轨迹追溯与版本变迁对比、测试环境两阶段安全修改发布、以及生产环境配置变更参谋建议单自动生成；(3) TraceId 全链路时序回溯与 Mermaid 交互图自动生成；(4) ES 索引自学习与 Chrome 扩展探针自愈；(5) ES 搜索云平台双环境治理与索引探查；(6) Dinsight 自然语言大数据探查；(7) CI/CD 构建与测试环境部署闭环；(8) Luke 权限中心双环境治理；(9) 通用 Chrome 浏览器操作，并按页面沉淀可整段执行的操作流程；(10) 白鸽网关三环境探查与治理；(11) UC 组织与人员角色管理中心全量探查与测试环境角色治理。支持本地排查流程的保存、检索复用与更新。
+description: 线上与测试环境全场景数据探查、日志检索、TraceId 链路回溯、灯塔 ARMS 前端监控与全链路排障（双轨鉴权 x-api-key + Chrome Cookie 自动中继，覆盖前端日志检索/聚合、运行时/资源/白屏异常榜、ViewId 链路追踪、Web Vitals 性能、API 慢/失败请求与 PV/UV）、Apollo 实时配置查询与单项发布轨迹追溯（线上/测试/预发）、测试环境配置安全修改发布、线上变更参谋建议、ES 搜索云平台双环境治理与索引探查（脱离项目目录直连 search.ke.com 拉取授权索引目录、精准 Mapping 字段语义解析、多维检索、测试环境安全 CRUD 预审与生产环境物理只读拦截）、Dinsight 自然语言大数据探查、Luke 权限中心双环境治理（约束/权限点/角色/人员两阶段风控配置与线上/删除高危拦截、员工权限全景画像与双人三层深度 Diff 对比）、白鸽网关三环境治理与路由探查（测试/预发/生产三环境微服务网关登记、路由组与子路由规则解析、服务管理员授权与跨环境三态对照 check）、以及 UC 组织与人员角色管理中心测试环境全量探查与角色治理（员工组织/职位/主兼岗/关系角色全景画像、按城市/组织/角色找测试账号、组织树与上下级负责人探查、人-人/人-组织/组织-组织关系与测试环境角色两阶段安全修改）。涵盖核心能力：(1) FAST / Kibana 线上日志毫秒级极速直连检索、入参出参抓取与 500 异常排查；(2) Apollo 配置中心免鉴权秒级直连探查、单项配置发布轨迹追溯与版本变迁对比、测试环境两阶段安全修改发布、以及生产环境配置变更参谋建议单自动生成；(3) TraceId 全链路时序回溯与 Mermaid 交互图自动生成；(4) ES 索引自学习与 Chrome 扩展探针自愈；(5) ES 搜索云平台双环境治理与索引探查；(6) Dinsight 自然语言大数据探查；(7) CI/CD 构建与测试环境部署闭环；(8) Luke 权限中心双环境治理；(9) 通用 Chrome 浏览器操作，并按页面沉淀可整段执行的操作流程；(10) 白鸽网关三环境探查与治理；(11) UC 组织与人员角色管理中心全量探查与测试环境角色治理；(12) 灯塔 ARMS 前端监控与异常/性能/链路排查 (`scripts/arms_query.js`)。支持本地排查流程的保存、检索复用与更新。
 ---
 
 # 🔍 Leo Live Inspector (线上数据探查、日志检索、Trace 链路透视与 Apollo 配置中枢)
@@ -18,6 +18,7 @@ description: 线上与测试环境全场景数据探查、日志检索、TraceId
 10. **🔎 ES 搜索云平台双环境治理与索引探查（脱离项目目录、字段语义、测试 CRUD）**：参照服务云查 MySQL 范式，通过内置 Chrome 扩展中继自动同步 `search.ke.com` 登录态并缓存当前工号已授权的全部 ES 索引目录（`scripts/es_query.js` 与 `scripts/es_modify.js`）；支持脱离本地项目目录直接按 `serviceId` 或索引名关键词查精准 Mapping 字段结构/数据源上下文/样本值与多维度检索（兼容标准检索网关 `/search` 与 ES8 原生 DSL `/search/es`）；【测试环境】通过 `detailBusinessQA` / `detailBusinessRD` 自动获取测试配置并支持安全 CRUD（含 Pre-flight Diff 预审机制与写入回查校验）；【生产环境】纯正则 `TEST_PATTERNS` 判定，非测试环境严格物理死锁只读保护，杜绝误操作。
 11. **🕊️ 白鸽网关三环境探查与治理（服务登记、路由组、子路由与跨环境三态对照）**：涵盖测试环境 `life-fe-baige-node.offline-beta.ttb.test.ke.com` (`-e test`)、预发环境 `preview.baige.ke.com` (`-e preview`) 与线上生产环境 `baige.ke.com` (`-e prod`)（`scripts/baige_query.js` 与 `scripts/baige_modify.js`）；支持服务登记查询、详情与 Eureka/域名转发配置探查、路由组与子路由规则解析、服务授权管理员查询与添加/删除、以及跨测试/预发/生产三环境的三态对照与差异分析（`check <serviceId>`）。同样坚守两阶段风控原则，线上及删除管理员等高危操作强制 Pre-flight 试运行，明确确认后方可执行。
 12. **🏢 UC 组织与人员角色管理中心全量探查与测试环境角色治理**：直连测试环境 `test3-uc.admin.ke.com`（GraphQL + 本域 REST）与 `test-uc-relation-admin.ke.com`（关系与角色 REST）（`scripts/uc_query.js` 与 `scripts/uc_modify.js`）；支持**单人 UC 全景画像**（基础信息、上下级汇报链、EHR主兼岗职位、UC手动设置角色、关系中心绑定角色与管辖对象 `relationList`、人事调转记录）、**按城市/组织/业务角色多维检索测试账号**（中文城市/角色名自动转码）、**组织全景详情与业务组织树下探**、**城市公司列表**、**人-人 / 人-组织 / 组织-组织三大关系查询**、**组织标签与 BPM 角色申请流查询**；同时支持测试环境人员角色新增/修改/删除及关系角色绑定/解绑，严格执行**两阶段 Pre-flight Diff 预审 + 用户确认 (`--confirm`)** 风控机制。
+13. **🗼 灯塔 ARMS 前端监控与全链路排障 (`scripts/arms_query.js`)**：直连 `arms.fee.lianjia.com`，采用**双轨鉴权**（优先读取 `ARMS_API_KEY` 或 `~/.shrimp/skills/live-inspector/arms_api_key.json` 中的 `x-api-key`，未配置或失效时无缝回退 Chrome Cookie 自动中继 `arms_cookie.json`）；通过免登录 `/api/aiMcp/project/list` 自动识别本地 Git 仓库对应的灯塔项目并本地缓存；支持**自定义条件日志检索与聚合 (`logs`)**、**运行时/资源加载/白屏异常 TOP 榜 (`errors`)**、**`viewid` 单次访问全链路时序回溯 (`trace`)**、**页面性能 Web Vitals (`perf`)**、**API 接口失败率与慢请求排查 (`api`)**、以及**项目健康分与 PV/UV (`overview` / `pvuv`)**（不含告警规则与自定义看板）。
 
 > ⚠️ **【核心执行原则：AI 全自动后台执行，严禁要求用户手动运行命令】**
 > - **底层脚本（`scripts/fast_query.js`、`scripts/apollo_modify.js`、`scripts/ci_deploy.js`、`scripts/feci_deploy.js`、`scripts/luke_query.js` 与 `scripts/luke_modify.js` 等）是 AI 专用的后台探查、交付与运维工具**。
@@ -147,6 +148,9 @@ description: 线上与测试环境全场景数据探查、日志检索、TraceId
 | **“查下测试环境 UC 的业务组织树 / 城市公司 / 人-人 / 人-组织关系”** | `node scripts/uc_query.js org-tree [orgCode]` / `companies` / `p2p` / `user-org` | 探查业务组织树、城市公司字典或人-人/人-组织/组织-组织关系列表 |
 | **“在测试环境 UC 给 30560224 新增一个 XFTJ8001 组织的商圈经理角色”** | **阶段 1 (AI 强制 Pre-flight 预审)**：<br>`node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理` | 展示目标员工现有手动角色与拟新增角色 Diff 预审单，**停下等待用户明确确认** |
 | **用户明确确认新增/修改/删除 UC 角色** | **阶段 2 (用户确认后正式写入并回查)**：<br>`node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理 --confirm` | 正式提交 GraphQL Mutation 并自动回查校验最新生效角色列表 |
+| **“查下前端项目 life-fe-intelligentize 最近报错 / 某条异常详情”** | `node scripts/arms_query.js errors life-fe-intelligentize` / `logs life-fe-intelligentize -q "<关键词>" -t today` | 自动匹配灯塔项目 ID，输出运行时/资源/白屏 TOP 榜或自定义检索/聚合结果 |
+| **“根据灯塔 viewid 还原这次前端访问发生了什么”** | `node scripts/arms_query.js trace <project> <viewId>` | 按时间正序还原 PV、Web Vitals、API 慢/失败请求与 JS/Console 异常全链路 |
+| **“看下前端项目健康分 / Web Vitals 性能 / API 接口失败率 / PVUV”** | `node scripts/arms_query.js overview|perf|api|pvuv <project>` | 输出健康评分、LCP/FCP/TTFB/CLS 分位、失败接口列表或页面流量排行 |
 
 ---
 
@@ -581,6 +585,7 @@ AI 后台执行 `node scripts/ci_deploy.js [serviceId] [options]`：
 | Apollo 测试 Portal | 适用于 Portal 的 Cookie（包括 `jt_apollo_login_token`） |
 | Luke 权限中心 (测试/线上) | 适用于 `luke.ke.com` / `test-luke.ke.com` 的鉴权 Cookie（包括 `luke-token`、`login_ucid` 等） |
 | UC 组织与角色中心 (测试环境) | 适用于 `test3-uc.admin.ke.com` 与 `test-uc-relation-admin.ke.com` 的 `.ke.com` 鉴权 Cookie（`sso_login_token`、`security_ticket_test`、`login_ucid` 等），缓存至 `test_uc_cookie.json` |
+| 灯塔 ARMS 前端监控 (`arms.fee.lianjia.com`) | 双轨鉴权：优先读取 `ARMS_API_KEY` 或 `~/.shrimp/skills/live-inspector/arms_api_key.json` (`x-api-key`)；未配置时自动中继 `arms.fee.lianjia.com` Cookie 并缓存至 `arms_cookie.json` |
 | Dinsight | 上述 5 个 Key，按实际认证 API URL 获取 |
 | Paoding 测试日志 | 匿名优先；明确鉴权失败后尝试缓存及浏览器 |
 | FAST / Apollo ConfigService | 直连 Kibana ES 检索及 Apollo ConfigService 免凭据；仅首次实时抓取未收录 FAST 服务索引时自动获取 `fast.ke.com` Cookie（缓存至 `fast_cookie.json`） |
@@ -1038,6 +1043,50 @@ node scripts/uc_modify.js bind-role 30560224 --role GUANLIYUAN
 node scripts/uc_modify.js bind-role 30560224 --role GUANLIYUAN --confirm
 node scripts/uc_modify.js unbind-role 30560224 --role GUANLIYUAN
 node scripts/uc_modify.js unbind-role 30560224 --role GUANLIYUAN --confirm
+```
+
+---
+
+## 🗼 13. 灯塔 ARMS 前端监控与全链路排障 (`scripts/arms_query.js`)
+
+直连公司前端监控平台 `http://arms.fee.lianjia.com`，补齐前端侧的线上/测试排障闭环（只读观测，**不包含告警规则、告警历史与自定义看板**）。
+
+### 13.1 核心特性与双轨鉴权
+1. **双轨鉴权自动切换**：
+   - **轨道 A（优先 `x-api-key`）**：读取 `--api-key` 参数、`ARMS_API_KEY` 环境变量或 `~/.shrimp/skills/live-inspector/arms_api_key.json`（可通过 `--set-api-key <key>` 写入），完全脱离浏览器依赖，覆盖日志检索/聚合、`viewid` 追踪、错误榜、资源异常、白屏、性能与 API 监控；
+   - **轨道 B（自动回退 Chrome Cookie 中继）**：未配置 API Key 或加传 `--use-cookie` 时，复用 `createCredentialSession` 从 Chrome 扩展自动同步 `arms.fee.lianjia.com` 登录态并缓存至 `arms_cookie.json`。
+2. **免登录项目自发现与缓存**：
+   - 调用免鉴权接口 `/api/aiMcp/project/list` 拉取全量项目清单并缓存至 `~/.shrimp/skills/live-inspector/arms_projects.json`（24h 有效，支持 `--refresh`）；
+   - 支持传项目 ID（`1737`）、项目标识（`app-life-fe-intelligentize`）、Git 仓库名（`life-fe-intelligentize`）或中文显示名（`智慧工地H5`）；缺省时自动探测当前 Git 仓库。
+
+### 13.2 常用 CLI 命令速查
+```bash
+# 0. 保存 x-api-key (可选，已配置后无需浏览器登录态)
+node scripts/arms_query.js --set-api-key <你的API_KEY>
+
+# 1. 查找灯塔项目 (免鉴权)
+node scripts/arms_query.js projects intelligentize
+
+# 2. 查看项目健康分、PV/UV、错误率与体验分概览
+node scripts/arms_query.js overview life-fe-intelligentize
+
+# 3. 自定义条件日志检索与聚合 (queryData，最大窗口 7 天)
+node scripts/arms_query.js logs 1737 -q "TRTC SDK初始化失败" -t today -n 10 --slim
+node scripts/arms_query.js logs 1737 -q "TRTC" --aggs pageType -t today
+node scripts/arms_query.js logs 1737 -f "common.ucid=3000110000457769" -f "extra~TRTC" -t 24h
+
+# 4. 运行时 / 资源加载 / 白屏异常 TOP 榜与采样明细
+node scripts/arms_query.js errors 1737 --kind all -n 10
+node scripts/arms_query.js errors 1737 --kind resource --source-type script
+node scripts/arms_query.js errors 1737 --error-id "===TRTC SDK初始化失败:===TRTC SDK初始化失败:"
+
+# 5. 按 viewId 还原单次访问全链路时间线 (PV -> 性能 -> API 失败/慢请求 -> JS 报错)
+node scripts/arms_query.js trace 1737 2w4360jic43mwmzff5g
+
+# 6. Core Web Vitals 性能分位与 API 请求健康度
+node scripts/arms_query.js perf 1737 --metric LCP --days 7
+node scripts/arms_query.js api 1737 --failed-only -t 24h -n 20
+node scripts/arms_query.js pvuv 1737
 ```
 
 ---
