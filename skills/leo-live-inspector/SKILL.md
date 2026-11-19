@@ -583,7 +583,7 @@ AI 后台执行 `node scripts/ci_deploy.js [serviceId] [options]`：
 | UC 组织与角色中心 (测试环境) | 适用于 `test3-uc.admin.ke.com` 与 `test-uc-relation-admin.ke.com` 的 `.ke.com` 鉴权 Cookie（`sso_login_token`、`security_ticket_test`、`login_ucid` 等），缓存至 `test_uc_cookie.json` |
 | Dinsight | 上述 5 个 Key，按实际认证 API URL 获取 |
 | Paoding 测试日志 | 匿名优先；明确鉴权失败后尝试缓存及浏览器 |
-| FAST / Apollo ConfigService | 沿用现有访问流程，不新增强制凭据要求 |
+| FAST / Apollo ConfigService | 直连 Kibana ES 检索及 Apollo ConfigService 免凭据；仅首次实时抓取未收录 FAST 服务索引时自动获取 `fast.ke.com` Cookie（缓存至 `fast_cookie.json`） |
 
 第一版仅支持浏览器 Cookie，包括 HttpOnly Cookie 和存于 Cookie 中的 Token；不读取 localStorage、sessionStorage 或请求头 Token。仅支持同机单个普通 Profile，不支持隐身、分区 Cookie 或远程浏览器。信任本机程序，无配对密钥；`19527` 被其他程序占用时返回 `RELAY_BUSY`，稍后重试。
 

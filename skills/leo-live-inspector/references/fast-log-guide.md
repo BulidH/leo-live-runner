@@ -34,9 +34,10 @@ AI 在接收到用户自然语言排查需求时，自动在后台组装以下�
      }
      ```
 
-2. **二级通道（Chrome 扩展智能自愈探针）**：
-   * **Chrome 扩展桥接**：通过本地 `19527` 端口（桥接没开时自动拉起），在独立窗口中借用用户日常 Chrome 的登录态提取 cluster 与 index；Chrome 未打开时最多等 15 秒，然后回退到下一级；
-   * **自动纠错缓存**：探针提取成功后，自动覆写更新本地缓存 `~/.shrimp/skills/live-inspector/service_map.json` 并重试直连，实现 **100% 全自动无人干预自愈**。
+2. **二级通道（纯 HTTP API 直抓优先 + 页面探针兜底）**：
+   * **HTTP API 直抓（免开页面）**：遇未收录或失效服务时，优先复用本地缓存（`~/.shrimp/skills/live-inspector/fast_cookie.json` / `FAST_COOKIE`）或通过 `19527` 桥接从随附 Chrome 扩展静默获取 `fast.ke.com` 登录态 Cookie（扩展内置 `FAST_PROD` 每 20 分钟自动保活），直接请求 `POST https://fast.ke.com/es/queryconfiglist`（依次匹配 `<app>:prod`、默认列表及 `/app/appCode/linked`）与 `POST https://fast.ke.com/es/search/url` 获取真实的 `cluster` 与 `index`；
+   * **页面探针兜底**：当旧版扩展不支持凭据导出等情况时，自动降级为后台独立窗口打开 `fast.ke.com` 提取组件中的 `cluster` 与 `index`；
+   * **自动纠错缓存**：提取成功后自动更新 `~/.shrimp/skills/live-inspector/service_map.json` 并立即重试直连 Kibana ES（直连检索本身免凭据）。
 
 3. **排序与时序保障 (`sort`)**：
    * 查日志默认倒序 `desc`，拿到最新事件；

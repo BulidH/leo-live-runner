@@ -20,7 +20,7 @@ const __dirname = path.dirname(__filename);
 // 1. 路径与服务注册表定义
 import { loadServiceCatalog, resolveAppId, saveLearnedService } from './common/services.js';
 import { ensureBridge } from './cli/lib/cli.mjs';
-import { probePageScript } from './common/fast_probe.js';
+import { probePageScript, probeFastIndexViaApi } from './common/fast_probe.js';
 
 const LANTERN_BRIDGE_URL = `http://127.0.0.1:${process.env.LEO_LANTERN_PORT || 19527}`;
 const PROBE_BRIDGE_START_TIMEOUT_MS = 15000;
@@ -474,15 +474,45 @@ async function main() {
     }
   }
 
-  // 2. 【二级通道：自愈与自学习】如果未收录或直连报错，尝试 Chrome 扩展桥接 (Leo Lantern)
+  // 2. 【二级通道：自愈与自学习】优先纯 HTTP API 直抓（免打开页面），不适用时降级到 Chrome 扩展页面探针
   if (!esResult || !esResult.rawResponse) {
     let learned = null;
     let probeType = '';
+    let skipPageProbe = false;
 
-    const extLearned = await probeViaLanternExtension(opts.app);
-    if (extLearned && extLearned.index) {
-      learned = extLearned;
-      probeType = 'chrome-extension';
+    try {
+      const apiLearned = await probeFastIndexViaApi(opts.app, {
+        canonicalApp: resolveAppId(opts.app),
+        bridgeTimeoutMs: PROBE_BRIDGE_START_TIMEOUT_MS
+      });
+      if (apiLearned && apiLearned.index && apiLearned.cluster) {
+        learned = apiLearned;
+        probeType = 'fast-api';
+      }
+    } catch (apiErr) {
+      if (apiErr?.code === 'LOGIN_REQUIRED') {
+        console.error(JSON.stringify({
+          error: `查询失败: ${apiErr.message}`,
+          code: apiErr.code,
+          targetApp: opts.app,
+          suggestions: [
+            '1. 请在 Chrome 中打开并登录 https://fast.ke.com 后重试',
+            '2. 或直接向 AI 提供该微服务的 --cluster 与 --index 参数'
+          ]
+        }, null, 2));
+        process.exit(1);
+      }
+      if (apiErr?.code === 'RELAY_TIMEOUT' || apiErr?.code === 'RELAY_BUSY') {
+        skipPageProbe = true;
+      }
+    }
+
+    if (!learned && !skipPageProbe) {
+      const extLearned = await probeViaLanternExtension(opts.app);
+      if (extLearned && extLearned.index) {
+        learned = extLearned;
+        probeType = 'chrome-extension';
+      }
     }
 
     // (C) 探针自愈成功，持久化并重试直连

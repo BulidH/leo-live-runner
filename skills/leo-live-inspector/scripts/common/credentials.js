@@ -435,6 +435,26 @@ export function saveSearchCookie(cookieStr) {
   });
 }
 
+/** FAST 日志平台 (fast.ke.com) Cookie 凭证 */
+export function loadFastCookie() {
+  return loadCookie({
+    envVar: 'FAST_COOKIE',
+    jsonFileName: 'fast_cookie.json',
+    targetUrl: 'https://fast.ke.com/',
+    downloadCandidates: [
+      'cookies-fast.ke.com.txt',
+      'cookies.txt'
+    ]
+  });
+}
+
+export function saveFastCookie(cookieStr) {
+  return saveCookie({
+    jsonFileName: 'fast_cookie.json',
+    cookieStr
+  });
+}
+
 /** UC 组织与人员角色管理中心 (test3-uc.admin.ke.com / test-uc-relation-admin.ke.com) Cookie 凭证 */
 export function loadUcCookie({ env = 'test' } = {}) {
   const normEnv = (env || 'test').toLowerCase();
