@@ -52,6 +52,9 @@ export const isBaigeAuthFailure = res => {
     const loc = res?.headers?.location || '';
     if (/login\.ke\.com/i.test(loc)) return true;
   }
+  if (res?.statusCode === 200 && typeof res?.raw === 'string' && /<html|<!doctype/i.test(res.raw)) {
+    if (/login\.ke\.com|passport|统一登录|扫码登录|KOL/i.test(res.raw)) return true;
+  }
   const body = res?.json || res?.data;
   if (body && typeof body === 'object') {
     if (body.code === 401 || body.status === 401) return true;
