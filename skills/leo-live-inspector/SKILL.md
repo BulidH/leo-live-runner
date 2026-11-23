@@ -132,6 +132,9 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“在测试环境删除 ES 记录 10001”** | `node scripts/es_modify.js 门锁 --action delete --id "10001" -e test --confirm` | 提交删除指令并校验文档清除结果 |
 | **“在线上/生产环境修改或删除 ES 数据”** | **执行风控红线拦截 (物理阻断直写)** | **严禁自动化线上写入！** 触发 `assertWritePermitted` 拦截，提示线上仅支持只读查询 |
 | **“在这个页面上抓数据 / 测一下 / 导出 / 按上次的方式再来一遍”** | `node scripts/knowledge.js search '<域名> <路径关键段>' --kind page`，命中则整段执行对应流程，未命中则正常操作（见 [8.1](#81-页面操作流程沉淀与复用)） | 本次任务结果（数据、截图、检查结论）；有摸索过程时询问是否沉淀 |
+| **“抓取页面表格数据 / 结构化提取”** | `node scripts/cli/index.mjs eval --file "/tmp/extract.js"` (结合 `state` 与 `wait --idle`) | 输出结构化 JSON 数据并自动落盘 |
+| **“截取网页长图 / 截取局部组件”** | `node scripts/cli/index.mjs screenshot --full-page --out full.png` (或 `--sel` / `--ref`) | 捕获高保真整页长图或指定区域截图 |
+| **“抓取页面的后台接口请求 / 嗅探 API 数据”** | `cli net-start` $\rightarrow$ 触发页面交互 $\rightarrow$ `cli net-get --grep "api"` $\rightarrow$ `cli net-stop` | 截获后端原始 XHR/fetch JSON 响应 |
 | **“把这个页面操作记下来 / 补进页面手册”** | `node scripts/knowledge.js save --file <JSON> --expected-version <版本> --kind page` | 保存后回读，报告手册名称、版本与路径 |
 | **“白鸽网关登记了哪些微服务 / 查下网关服务列表”** | `node scripts/baige_query.js apps [-q <kw>] [-e test|preview|prod]` | 格式化微服务网关登记列表、转发方式与创建人表格 |
 | **“查下 utopia-scs-algo 在白鸽网关上的配置”** | `node scripts/baige_query.js detail utopia-scs-algo [-e test|preview|prod]` | 微服务网关详细属性、转发地址、授权管理员列表及 Web 直达链接 |
@@ -609,13 +612,34 @@ node scripts/credential_relay.js https://cloud.intra.ke.com --json
 
 ---
 
-## 🌐 8. 通用浏览器操作
+## 🌐 8. 通用浏览器操作与页面数据抓取
 
-用随附 CLI 操作用户真实的 Chrome：页面测试、数据抓取、填表导出、查看页面状态、截图复现问题、抓接口请求。查数、查配置、改配置等有业务脚本的场景仍优先用业务脚本。用法见[通用浏览器操作手册](references/browser-guide.md)。
+通过随附 CLI（`scripts/cli/index.mjs`，与 `leo-lantern` 核心引擎同源）直接操作用户真实的有界面 Chrome。除了页面测试、填表与排障外，具备完整的**通用页面数据抓取体系**：
+- **高保真 DOM 感知**：`state` / `snapshot` 获取带 `ref`、`generation`、`selector` 与 `rect` 的交互 DOM 树；`find` 精准定位。
+- **结构化数据抓取**：推荐将抓取脚本写成文件通过 `eval --file` 执行，返回规整 JSON，杜绝命令行引号转义和中文损坏。
+- **非侵入式网络嗅探（API 抓包）**：`net-start` $\rightarrow$ 触发页面操作 $\rightarrow$ `net-get --grep "api"` $\rightarrow$ `net-stop`，直接抓取后端原始 XHR/fetch 报文。
+- **长文本与长截图**：`content --max-chars 4000` 抽取脱壳文本；`screenshot --full-page` / `--sel` 截取整页长图或局部组件。
+- **流式/动态页面静止等待**：`wait --idle --idle-ms 2000`，等待流式 AI 内容或异步渲染完全稳定。
+- **登录凭证中继与离线导出**：`cookies --url <URL> --open-if-missing --out <文件>` 自动在后台打开并提取 Netscape/JSON 凭据。
+- **复杂前端避坑战术**：完整支持 AntD/Element UI 下拉穿透、Shadow DOM 穿透、遮罩拦截自愈、受控组件 `--blur` 校验与 CDP 原生物理输入。
+
+详细参数、四大抓取范式与 12 大复杂交互避坑指南见 [通用浏览器操作与页面抓取手册](references/browser-guide.md)。
 
 ```bash
+# 查看页面 DOM 状态与元素 Ref
 node <skillDir>/scripts/cli/index.mjs state
-node <skillDir>/scripts/cli/index.mjs screenshot --out page.png
+
+# 执行结构化抽取脚本并落盘
+node <skillDir>/scripts/cli/index.mjs eval --file "/tmp/extract.js" > "/tmp/result.json"
+
+# 截取整页长图
+node <skillDir>/scripts/cli/index.mjs screenshot --full-page --out full.png
+
+# 启动网络抓包嗅探 API 响应
+node <skillDir>/scripts/cli/index.mjs net-start
+# (页面操作或等待...)
+node <skillDir>/scripts/cli/index.mjs net-get --grep "api"
+node <skillDir>/scripts/cli/index.mjs net-stop
 ```
 
 ### 8.1 页面操作流程沉淀与复用

@@ -1,4 +1,5 @@
 import http from "node:http";
+import net from "node:net";
 import fs from "node:fs/promises";
 import syncFs from "node:fs";
 import path from "node:path";
@@ -38,6 +39,7 @@ const BOOLEAN_FLAGS = new Set([
   "no-exit",
   "noexit",
   "open-if-missing",
+  "blur",
 ]);
 
 const PARAM_ALIASES = new Map([
@@ -142,6 +144,26 @@ async function lanternHealth(options) {
   }
 }
 
+async function isPortAvailable(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => {
+      tester.close(() => resolve(true));
+    });
+    tester.listen(port, host);
+  });
+}
+
+async function findNextAvailablePort(startPort, host = "127.0.0.1", limit = 10) {
+  for (let p = startPort; p < startPort + limit; p++) {
+    if (await isPortAvailable(p, host)) {
+      return p;
+    }
+  }
+  return null;
+}
+
 /** Returns the bridge's health, starting it in the background and waiting for the extension if needed. */
 export async function ensureBridge(options = {}) {
   let health = await lanternHealth(options);
@@ -166,9 +188,18 @@ export async function ensureBridge(options = {}) {
   }
   if (!health) {
     const { port, host } = bridgeAddress(options);
+    const suggestedPort = await findNextAvailablePort(port + 1, host);
+    const suggestionMsg = suggestedPort
+      ? `\n💡 建议解决方案：\n` +
+        `  1. 打开 Chrome 扩展 (Leo cookie.txt Locally) -> 点击扩展图标展开「高级设置」；\n` +
+        `  2. 在「Bridge 地址」中输入端口号：${suggestedPort}（或 http://${host}:${suggestedPort}）并保存；\n` +
+        `  3. 重新执行命令追加参数：--port ${suggestedPort}（或设置环境变量 LEO_LANTERN_PORT=${suggestedPort}）。`
+      : "";
     throw protocolError({
-      code: "bridge_unavailable",
-      message: `Could not start Leo Lantern on http://${host}:${port}; the port may be held by another service`,
+      code: "bridge_port_occupied",
+      message: `Could not start Leo Lantern on http://${host}:${port}; the port may be held by another service.${suggestionMsg}`,
+      port,
+      suggestedPort,
     });
   }
   return { ...health, started };
@@ -411,12 +442,25 @@ export async function executeCommand(command, params = {}, positional = [], opti
       const value = params.val !== undefined ? params.val : params.value !== undefined ? params.value : positional[0];
       if (!selector && !target) throw new Error("A target is required for 'fill'");
       if (value === undefined) throw new Error("--val or value is required for 'fill'");
+      const blur = params.blur ? true : undefined;
       return await requestBridge(
         "/cmd",
         "POST",
         {
           type: COMMAND_TYPES.DOM_FILL,
-          params: definedParams(target ? { tabId: params.tabId, target, value: String(value) } : { tabId: params.tabId, selector, value: String(value) }),
+          params: definedParams(target ? { tabId: params.tabId, target, value: String(value), blur } : { tabId: params.tabId, selector, value: String(value), blur }),
+        },
+        options
+      );
+    }
+
+    case "ext-reload": {
+      return await requestBridge(
+        "/cmd",
+        "POST",
+        {
+          type: COMMAND_TYPES.EXT_RELOAD,
+          params: definedParams({ tabId: params.tabId }),
         },
         options
       );
@@ -677,6 +721,7 @@ export async function executeCommand(command, params = {}, positional = [], opti
         }
         const netscapeText = lines.join("\n") + "\n";
         if (outPath) {
+          await fs.mkdir(path.dirname(outPath), { recursive: true });
           await fs.writeFile(outPath, netscapeText, "utf-8");
           return { ok: true, savedTo: outPath, format: "netscape", count: cookies.length };
         }
@@ -684,6 +729,7 @@ export async function executeCommand(command, params = {}, positional = [], opti
       }
 
       if (outPath) {
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, JSON.stringify(res, null, 2), "utf-8");
         return { ok: true, savedTo: outPath, format: "json", count: cookies.length };
       }

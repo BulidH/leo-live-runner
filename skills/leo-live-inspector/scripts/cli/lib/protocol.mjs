@@ -1,4 +1,4 @@
-export const DEFAULT_BRIDGE_PORT = 19527;
+export const DEFAULT_BRIDGE_PORT = 19526;
 export const DEFAULT_BRIDGE_HOST = "127.0.0.1";
 export const DEFAULT_COMMAND_TIMEOUT_MS = 25000;
 export const DEFAULT_POLL_TIMEOUT_MS = 25000;
@@ -15,6 +15,8 @@ export class LanternProtocolError extends Error {
     super(payload.message);
     this.name = "LanternProtocolError";
     this.code = payload.code;
+    if (payload.port !== undefined) this.port = payload.port;
+    if (payload.suggestedPort !== undefined) this.suggestedPort = payload.suggestedPort;
     this.lanternError = payload;
   }
 }
@@ -31,6 +33,8 @@ export function normalizeProtocolError(error, fallbackCode = "invalid_request") 
       ...(error.matches_n !== undefined ? { matches_n: error.matches_n } : {}),
       ...(error.clicked !== undefined ? { clicked: error.clicked } : {}),
       ...(error.candidates !== undefined ? { candidates: error.candidates } : {}),
+      ...(error.port !== undefined ? { port: error.port } : {}),
+      ...(error.suggestedPort !== undefined ? { suggestedPort: error.suggestedPort } : {}),
     };
   }
   return {
@@ -80,6 +84,7 @@ export const COMMAND_TYPES = {
   CDP_NET_GET: "cdp.net-get",
   CDP_NET_STOP: "cdp.net-stop",
   CDP_UPLOAD: "cdp.upload",
+  EXT_RELOAD: "ext.reload",
 };
 
 // eval() cannot contain await, so compile in the page: as one expression, then with the last
