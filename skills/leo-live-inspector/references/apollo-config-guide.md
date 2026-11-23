@@ -178,3 +178,34 @@ node scripts/apollo_query.js zulin-iot-platform lockAuth --json
    http://apollo.portal.life.ke.com/#/appid={appId}&env=PROD&cluster=default&namespace={namespace}
    ```
    *用户只需一键点击，免去在控制台复杂微服务列表中寻找具体 Namespace 的时间。*
+
+---
+
+## 📜 6. Apollo 单项配置发布轨迹与时序变迁追溯 (`scripts/apollo_history.js`)
+
+AI 后台执行 `node scripts/apollo_history.js <appId|alias> [namespace] <key> [options]`：
+
+### 6.1 参数选项与说明
+| 参数/选项 | 简写 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `<appId\|alias>` | - | 必填 | 目标微服务唯一 ID 或业务别名 (如 `iot`, `saas`, `platform`) |
+| `[namespace]` | - | 自动嗅探 | 命名空间。未指定时全自动扫描应用所有 Namespace 定位该 Key |
+| `<key>` | - | 必填 | 待追踪的配置项键名 (如 `bindWhiteList`, `rentButton`, `timeout`) |
+| `--env` | `-e` | `prod` | **目标环境**: `prod` (生产, 默认), `test` (测试), `preview` (预发) |
+| `--cluster` | `-c` | `default` | 集群名称 (预发环境自动探测 `preview` / `prev` 集群，未配置则优雅回退至 `default`) |
+| `--depth` | `-n` | `50` | 最大扫描历史版本数量 (支持 10~200，便于回溯半年或更早版本) |
+| `--page-size` | `-s` | `20` | 单次分页批量抓取条数 (5~50) |
+| `--all` | - | `false` | 输出扫描到的所有发布版本 (默认仅输出该 Key 发生变更的节点) |
+| `--json` | - | `false` | 以结构化 JSON 格式输出历史轨迹 |
+| `--cookie` | - | 动态读取 | 临时覆盖 Portal 请求 Cookie (默认自动从中继扩展获取) |
+| `--set-cookie` | - | - | 手动保存更新本地 Cookie 缓存 |
+
+### 6.2 核心特性与处理逻辑
+1. **逐版本时序状态机 Diff**：
+   - 循环拉取历次 Release 快照，对目标 Key 在相邻两次发布之间的状态变化进行萃取；
+   - 明确标注变更类型：**🟢 新增 (CREATE)**、**🟡 修改 (MODIFY)**、**🔴 删除 (DELETE)** 与 **⚪ 基准快照 (BASELINE)**；
+   - 输出完整的 **发布版本号 (`releaseTitle`)**、**发布时间 (`releaseTimeFormatted`)**、**操作人员工号与姓名 (`operatorDisplayName`)** 与 **发布说明 (`releaseComment`)**。
+2. **预发环境 (PREVIEW) 自适应与闭环核验**：
+   - 当指定 `-e preview` 时，工具会自动探测生产控制台下是否存在 `preview` 或 `prev` 专有集群；
+   - 若微服务预发无独立集群（直接共享线上配置），自动给出说明并呈现线上发布轨迹；
+   - **闭环生效校验**：无论任何环境，工具均会自动连通该环境专属 ConfigService（如 `http://prev.config.apollo.ke.com`）核验当前客户端真实生效值，确保版本轨迹与生效状态相互印证。

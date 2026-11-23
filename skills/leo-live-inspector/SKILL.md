@@ -3,157 +3,88 @@ name: leo-live-inspector
 description: 线上与测试环境全场景数据探查、全链路排障与配置/基建协同治理中枢。涵盖：(1) FAST/Kibana 日志检索、出入参抓取与 500 排查；(2) TraceId 链路回溯与 Mermaid 时序图；(3) 灯塔 ARMS 前端监控（异常榜、ViewId 追踪、Web Vitals 性能、API 慢请求）；(4) Apollo 配置探查、发布轨迹与变更参谋；(5) ES 搜索云、Luke 权限中心、白鸽网关、UC 组织画像与测试账号治理；(6) Kafka 探查、Dinsight 大数据查数、CI/CD 部署闭环与排查流程沉淀。用于线上/测试环境排障、查日志、追链路、查改配置、中台基建治理与流程复用。
 ---
 
-# 🔍 Leo Live Inspector (线上数据探查、日志检索、Trace 链路透视与 Apollo 配置中枢)
+# 🔍 Leo Live Inspector (线上数据探查、日志检索、Trace 链路透视与协同治理中枢)
 
-本 Skill 专门指导 AI 执行线上生产环境与测试环境的 **全场景数据观测、诊断与配置协同治理（Observe, Diagnose & Configure）**：
-1. **⚡ FAST / Kibana 毫秒级日志检索**：直连内网 ES 网关，快速捞取微服务报错日志、接口真实请求入参 (`request_in`) 与响应结果 (`request_out`)；
-2. **📡 Kafka 消息无损只读探查与测试环境模拟投递**：以 Topic 为核心资产，支持【零 Commit、零 Rebalance】秒级拉取线上/测试最新消息，支持分区水位排查与关键词过滤；测试环境支持利用 Sample 模板快速灌入数据模拟上游；
-3. **⚙️ Apollo 配置中心线上线下双轨体系（探查、发布轨迹、修改与变更参谋）**：直连 Apollo ConfigService 秒级读取全量实时配置；支持**任意配置项跨版本发布轨迹与时序变迁追溯 (`scripts/apollo_history.js`)**，覆盖线上生产 (PROD)、线下测试 (TEST) 与预发 (PREVIEW，自适应集群探测与实时值对照)；【测试环境】支持热修改发布与两阶段 Diff 确认闭环；【生产环境】坚守“零直写原则”，自动进入变更参谋模式，生成高可读性《线上变更建议单》与 Portal 官方直达链接；
-4. **🧵 TraceId 全链路时序还原**：跨微服务追溯完整请求生命周期，自动提炼调用步骤并绘制 **Mermaid 时序交互图**；
-5. **🧭 索引与资产自学习（双层持久化）**：初次查询新服务或新 Topic 自动就地嗅探或直连探针提取，统一沉淀至 `~/.shrimp/skills/live-inspector/`；
-6. **🧠 Dinsight 自然语言大数据探查**：自动获取浏览器登录态后，AI 后台直连 Dinsight Agent 流式查数，再结合代码与库表做二次分析；
-7. **🚀 CI/CD 构建与测试环境部署闭环**：后端直连 Shipwright 流水线与服务云工作负载（`scripts/ci_deploy.js`），前端直连 FeCI / 青蝉平台（`scripts/feci_deploy.js`），全自动触发构建、轮询进度并下发部署，坚守生产参谋安全红线；
-8. **🛡️ Luke 权限中心双环境治理（约束、权限点、角色与人员画像/双人三层 Diff）**：支持测试环境 `test-luke.ke.com` (`-e test`) 与线上生产环境 `luke.ke.com` (`-e prod`)（`scripts/luke_query.js` 与 `scripts/luke_modify.js`），支持自然语言全流程探查与配置约束（Ext）、权限点（Perm）、角色（Role）与绑定人员；支持**单人权限全景画像 (`user <ucid|name>`)** 与 **双人三层深度对比 (`diff-user <user1> <user2>`)**，具备约束自动取并集计算、角色/权限点/数据约束范围三层渐进式对比能力，直接输出角色 Code、权限 Code、约束 Code、关联 API 路径与 Luke Portal 控制台直达链接；坚守**两阶段风控原则**：查询操作直接执行；修改已有项、删除角色/权限点、从权限点中剔除接口/服务，以及线上生产环境的一切写操作，强制执行 Pre-flight 输出 Diff 对比与受影响人员/角色分析，**必须等待用户明确确认**后再追加 `--confirm` 执行发布并校验；
-9. **🌐 通用浏览器操作与页面流程沉淀**：通过随附 CLI（`scripts/cli/index.mjs`）操作用户真实的 Chrome，做页面测试、数据抓取、填表导出、截图和抓包；每个页面沉淀一份手册（地址、元素定位、可整段执行的操作流程），下次同类任务直接复用；线上一律只读（见[第 8 节](#-8-通用浏览器操作)）。
-10. **🔎 ES 搜索云平台双环境治理与索引探查（脱离项目目录、字段语义、测试 CRUD）**：参照服务云查 MySQL 范式，通过内置 Chrome 扩展中继自动同步 `search.ke.com` 登录态并缓存当前工号已授权的全部 ES 索引目录（`scripts/es_query.js` 与 `scripts/es_modify.js`）；支持脱离本地项目目录直接按 `serviceId` 或索引名关键词查精准 Mapping 字段结构/数据源上下文/样本值与多维度检索（兼容标准检索网关 `/search` 与 ES8 原生 DSL `/search/es`）；【测试环境】通过 `detailBusinessQA` / `detailBusinessRD` 自动获取测试配置并支持安全 CRUD（含 Pre-flight Diff 预审机制与写入回查校验）；【生产环境】纯正则 `TEST_PATTERNS` 判定，非测试环境严格物理死锁只读保护，杜绝误操作。
-11. **🕊️ 白鸽网关三环境探查与治理（服务登记、路由组、子路由与跨环境三态对照）**：涵盖测试环境 `life-fe-baige-node.offline-beta.ttb.test.ke.com` (`-e test`)、预发环境 `preview.baige.ke.com` (`-e preview`) 与线上生产环境 `baige.ke.com` (`-e prod`)（`scripts/baige_query.js` 与 `scripts/baige_modify.js`）；支持服务登记查询、详情与 Eureka/域名转发配置探查、路由组与子路由规则解析、服务授权管理员查询与添加/删除、以及跨测试/预发/生产三环境的三态对照与差异分析（`check <serviceId>`）。同样坚守两阶段风控原则，线上及删除管理员等高危操作强制 Pre-flight 试运行，明确确认后方可执行。
-12. **🏢 UC 组织与人员角色管理中心全量探查与测试环境角色治理**：直连测试环境 `test3-uc.admin.ke.com`（GraphQL + 本域 REST）与 `test-uc-relation-admin.ke.com`（关系与角色 REST）（`scripts/uc_query.js` 与 `scripts/uc_modify.js`）；支持**单人 UC 全景画像**（基础信息、上下级汇报链、EHR主兼岗职位、UC手动设置角色、关系中心绑定角色与管辖对象 `relationList`、人事调转记录）、**按城市/组织/业务角色多维检索测试账号**（中文城市/角色名自动转码）、**组织全景详情与业务组织树下探**、**城市公司列表**、**人-人 / 人-组织 / 组织-组织三大关系查询**、**组织标签与 BPM 角色申请流查询**；同时支持测试环境人员角色新增/修改/删除及关系角色绑定/解绑，严格执行**两阶段 Pre-flight Diff 预审 + 用户确认 (`--confirm`)** 风控机制。
-13. **🗼 灯塔 ARMS 前端监控与全链路排障 (`scripts/arms_query.js`)**：直连 `arms.fee.lianjia.com`，采用**双轨鉴权**（优先读取 `ARMS_API_KEY` 或 `~/.shrimp/skills/live-inspector/arms_api_key.json` 中的 `x-api-key`，未配置或失效时无缝回退 Chrome Cookie 自动中继 `arms_cookie.json`）；通过免登录 `/api/aiMcp/project/list` 自动识别本地 Git 仓库对应的灯塔项目并本地缓存；支持**自定义条件日志检索与聚合 (`logs`)**、**运行时/资源加载/白屏异常 TOP 榜 (`errors`)**、**`viewid` 单次访问全链路时序回溯 (`trace`)**、**页面性能 Web Vitals (`perf`)**、**API 接口失败率与慢请求排查 (`api`)**、以及**项目健康分与 PV/UV (`overview` / `pvuv`)**（不含告警规则与自定义看板）。
-
-> ⚠️ **【核心执行原则：AI 全自动后台执行，严禁要求用户手动运行命令】**
-> - **底层脚本（`scripts/fast_query.js`、`scripts/apollo_modify.js`、`scripts/ci_deploy.js`、`scripts/feci_deploy.js`、`scripts/luke_query.js` 与 `scripts/luke_modify.js` 等）是 AI 专用的后台探查、交付与运维工具**。
-> - 用户只负责用自然语言表达排查、查配置、改测试配置、部署测试环境、配置权限或提线上变更意图。
-> - **AI 必须在后台自动解析意图并主动执行对应脚本**：
->   - **查日志/查配置/查库/查权限**：AI 后台静默执行，提取关键日志、出入参、实时配置、权限树或调用链，交付结构化表格与结论。
->   - **测试环境 CI 构建与部署（全自动闭环）**：AI 后台自动识别当前 Git 仓库/服务与分支，触发构建并轮询镜像/产物出炉，自动下发测试环境负载部署并交付汇总报告；遇未配置服务自动动态发现并自学习缓存。
->   - **Apollo 与 Luke 权限修改（两阶段风控原则与线上高危拦截）**：AI **必须先执行 Pre-flight（Dry-Run）**，向用户展示【变更前 vs 变更后】Diff 对比单与受影响面评估，**尤其是线上生产环境 (`-e prod`) 或涉及删除角色、权限点、剔除 API 等高危操作，绝对禁止直接写入，必须在得到用户明确确认**后再追加 `--confirm` 执行发布并校验。
->   - **生产环境配置变更与部署（参谋原则）**：针对 Apollo 与 CI 生产发布，AI 生成包含参数对比、风险评估的《线上变更建议单》，并附带官方生产发布/配置 Portal 直达链接，引导负责人在受控审批流中人工审核与发布。
-> - **切勿在回复中输出“请您手动在终端运行 node scripts/...”等推卸给用户的言论。**
-> 
-> 🚨 **【核心鉴权铁律：零外部工具依赖，严禁使用 opencli / ego-browser / 外部自动化浏览器】**
-> - **自包含内生闭环**：本 Skill 拥有 100% 独立内生的凭据获取架构，所有登录态仅通过内部脚本与随附 Chrome 扩展（`Leo cookie.txt Locally`）经本地桥接 `127.0.0.1:19527` 通信完成获取与自动落盘；
-> - **严禁调用任何外部浏览器驱动工具**：绝对禁止调用 `opencli`（如 `opencli browser ...`）、`ego-browser`、`puppeteer`、`playwright` 等工具去操作或驱动浏览器获取登录态！外部工具具有强侵入性、易触发公司 SSO 风控拦截且破坏用户正常办公体验。随附的 `scripts/cli/index.mjs` 是本 Skill 的内部工具，不在此列，其使用边界见[第 8 节](#-8-通用浏览器操作)；
-> - **极简操作流程**：任何涉及凭据获取的场景，AI 直接运行对应的业务脚本即可（底层自动触发 `credential_relay` 会话并完成中继），或在需要单点校验连通性时运行 `node scripts/credential_relay.js <targetUrl>`；若扩展超时或未登录，只需温和提示用户在日常 Chrome 中登录目标网站后重试。
+本 Skill 专门指导 AI 执行线上生产环境与测试环境的 **全场景数据观测、诊断与配置协同治理（Observe, Diagnose & Configure）**。
 
 ---
 
-## 本地排查流程库
+## 🚨 核心执行铁律与环境双轨安全总则
 
-支持“把这次排查流程记下来”“按上次方法查”“列出已保存流程”“把新发现补进原流程”。组织最终回复前独立评估沉淀价值，即使排查前未检索流程库也要评估；准备询问保存、沉淀或更新时读取 [本地流程库手册](references/local-knowledge-guide.md)。
+> ⚠️ **【核心执行原则：AI 全自动后台执行，严禁要求用户手动运行命令】**
+> - **底层脚本（`scripts/fast_query.js`、`scripts/apollo_modify.js`、`scripts/ci_deploy.js`、`scripts/luke_*.js` 等）是 AI 专用的后台探查、交付与运维工具**。
+> - 用户只负责用自然语言表达排查、查配置、改测试配置、部署测试环境、配置权限或提线上变更意图。
+> - **AI 必须在后台自动解析意图并主动执行对应脚本**，提取结构化数据并交付表格与结论，切勿在回复中输出“请您手动在终端运行 node scripts/...”等言论。
+> 
+> 🚨 **【核心鉴权铁律：零外部工具依赖，严禁使用 opencli / ego-browser / 外部自动化浏览器】**
+> - **自包含内生闭环**：所有登录态仅通过内部脚本与随附 Chrome 扩展（`Leo cookie.txt Locally`）经本地桥接 `127.0.0.1:19527` 通信完成获取与自动落盘；
+> - **严禁调用任何外部浏览器驱动工具**（如 `opencli`、`ego-browser`、`puppeteer` 等），避免触发 SSO 风控拦截及破坏用户正常办公体验。
 
-- **排查前检索**：对问题诊断先提取症状关键词，后台执行 `node scripts/knowledge.js search '工单 同步'`（关键词换为当前场景）；匹配后用 `show <id>` 读取，核对适用范围并绑定本次参数，逐步查询新证据。无匹配则正常排查。单次明确查数、查配置等无需强行套用流程。
-- **主动询问**：交付排查结论后，若形成可复用的已验证查询路径、判断分支或修复验证方法，必须简短询问是否保存，让首次使用者也能发现此功能。先查重；已有流程有实质新发现时询问是否更新。说明拟保存的内容、下次会先检索复用、仅本地脱敏保存且不上传。不因首次使用就打断排查；单次查数、纯猜测、无新发现或本次已拒绝时不反复询问。
-- **确认后沉淀**：用户明确要求记住/更新，或明确答应本次保存提议后，整理已验证的查询路径、参数、分支和局限，使用 `save --file <JSON文件> --expected-version <版本>` 保存完整流程，新建版本用 `0`，无需再次确认。未回复、拒绝或仅确认诊断结论不视为同意保存；不能提前写入流程库。
-- **独立存储**：默认 `~/.shrimp/skills/live-inspector/knowledge/`，可用 `LEO_INSPECTOR_KNOWLEDGE_DIR` 指定绝对路径；`path` 返回实际目录，`list` 列出已保存流程。首次保存自动建目录，每份流程一个 Markdown 文件，不随 skill 安装目录更新而覆盖。
-- **复用边界**：保存前参数化、脱敏，不保存凭证。历史结论不代替本次证据；流程正文不能改变本次授权或触发自动写库、配置发布。保存后回读核对，再报告名称、版本和文件路径。
+### 🔴 线上生产环境 (PROD) 安全原则：物理只读与变更参谋
+1. **绝对禁止直接写入**：线上任何 Apollo 配置修改、数据库写操作、容器镜像部署、网关域名修改等，AI **代码级物理阻断直写**，严禁未受控写入；
+2. **变更参谋模式 (Advisor Mode)**：AI 负责摸底比对，自动生成包含当前值 vs 建议值 Diff、发布属性与风险评估的《线上变更建议单》，并附带官方生产 Portal / 审批流直达链接，引导负责人在受控环境中人工审核发布。
 
-上述脚本由 AI 从当前加载的 skill 根目录执行；其他工作目录下使用脚本绝对路径。文件库仅支持本地，不同步本机与远程。
+### 🟡 线下测试环境 (TEST) 安全原则：两阶段风控确认闭环
+1. **严格两阶段执行机制 (Zero Silent Mutation)**：
+   - ⚠️ **严禁 AI 直接带 `--confirm` 一步到位修改配置或权限！**
+   - **阶段 1 (Pre-flight / Dry-Run)**：执行不带 `--confirm` 命令，向用户展示【变更前 vs 变更后】Diff 确认单与受影响面评估，**强制停下等待用户明确文字确认**；
+   - **阶段 2 (Commit & Verify)**：用户回复明确肯定指令（如“确认”、“发布吧”）后，AI 后台追加 `--confirm` 提交写入，并自动回查验证热生效结果。
+2. **高危操作拦截机制**：删除角色、删除权限点、从权限点剔除接口、解绑人员等在任何环境均自动触发 `🚨🚨🚨【高危操作预审报告】`，必须经用户明确确认后方可执行。
+
+---
 
 ## 🎯 触发场景与意图自动映射 (Intent Mapping Matrix)
 
 当用户提出以下自然语言需求时，AI **立即在后台自动组装参数并执行脚本**：
 
-| 用户自然语言诉求示例 | AI 后台自动执行的标准命令 | 预期交付产物 |
-| :--- | :--- | :--- |
-| **“把当前分支构建部署到测试环境”** | `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别当前 Git 仓库与分支，触发流水线构建并自动部署测试环境 |
-| **“构建部署 smart-customer-service 的 master 分支”** | `node scripts/ci_deploy.js smart-customer-service -b master` | 触发指定微服务与分支构建，轮询镜像后部署测试环境 |
-| **“构建部署前端代码 / 发布前端测试环境”** | `node scripts/feci_deploy.js` | 自动识别前端工程与分支，触发 FeCI (青蝉) 构建与测试环境发布 |
-| **“只构建 smart-customer-service 不部署”** | `node scripts/ci_deploy.js smart-customer-service --build-only` | 触发构建流水线，轮询至产物镜像生成并回显镜像地址 |
-| **“把 smart-customer-service 最新镜像部署到测试”** | `node scripts/ci_deploy.js smart-customer-service --deploy-only` | 自动拉取最近构建完成的镜像，覆盖更新测试工作负载 |
-| **“查看 smart-customer-service 最近构建的镜像”** | `node scripts/ci_deploy.js smart-customer-service --list-images` | 提取最近 5 次构建产物的镜像地址与生成时间 |
-| **“新人首次部署未知微服务 (如 my-new-svc)”** | `node scripts/ci_deploy.js my-new-svc` | **自动嗅探** CI 流水线与测试工作负载，校验后自动自学习沉淀本地缓存 |
-| **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！**<br>交付《生产环境部署参谋单》（含镜像版本、Commit、构建时间）并附带官方控制台直达链接，引导负责人在生产平台审批发布 |
-| *“查下 iot-platform 最新 10 条日志”* | `node scripts/fast_query.js -a iot-platform -t 15m -n 10` | 格式化概况与最新日志表格 |
-| *“看下刚才报的 500 错误/异常堆栈”* | `node scripts/fast_query.js -a <app> --level ERROR -t 30m -n 10` | 异常原因、报错位置与堆栈解析 |
-| *“根据 TraceId 361922-10... 抓下调用链路”* | `node scripts/fast_query.js -a <app> --traceId "361922-10..."` | **必须输出 Mermaid 时序交互图** 与关键调用耗时 |
-| *“查下今天 14:00~14:30 之间的门锁操作”* | `node scripts/fast_query.js -a <app> --from "2026-08-31 14:00:00" --to "2026-08-31 14:30:00" -q "门锁"` | 该时间段内的事件时序分析 |
-| *“抓取 /api/sync/lockDetail 接口的真实响应数据”* | `node scripts/fast_query.js -a <app> --uri "/api/sync/lockDetail" --bltag request_out --slim -n 5` | 提取并格式化脱敏后的出参 JSON |
-| **“查下 iot-platform 在 Apollo 上的配置”** | `node scripts/apollo_query.js iot-platform` | 微服务全量配置项概览（默认线上环境，自动去重） |
-| **“查下【测试环境】saas 的 Apollo 配置或开关”** | `node scripts/apollo_query.js saas -e test` | 测试环境 (test.config.apollo.ke.com) 实时配置 |
-| **“查下【预发环境】saas 的超时配置 timeout”** | `node scripts/apollo_query.js saas -e preview timeout` | 预发环境 (prev.config.apollo.ke.com) 超时参数明细 |
-| **“看下 iot-platform 上的 lockAuth 开关或白名单”** | `node scripts/apollo_query.js iot-platform lockAuth` | 匹配到的业务开关、白名单及解析后的格式化 JSON |
-| **“查下 Apollo application.properties 里的 weitang 配置”** | `node scripts/apollo_query.js iot-platform application.properties weitang` | 指定命名空间下的精准配置项 |
-| **“查下线上 iot 某个配置项的发布轨迹 / 谁改的”** | `node scripts/apollo_history.js iot <key>` | 线上生产环境历次 Release 逐版本比对，输出变更人、时间、发布说明与新旧值 Diff |
-| **“查下【测试环境】liveRunner 白名单的修改历史”** | `node scripts/apollo_history.js iot liveRunner.access.ucIdWhitelist -e test` | 测试环境发布版本生命周期回溯与 Diff 提取 |
-| **“查下【预发环境】rentButton 的发布轨迹”** | `node scripts/apollo_history.js iot rentButton -e preview` | 预发环境自适应探测 preview 专有集群，无独立集群则映射线上轨迹并对照预发实时生效值 |
-| **“把测试环境 iot 的 liveRunner.access.ucIdWhitelist 改成 [31534062,12]”** | **阶段 1 (AI 强制 Pre-flight 探查)**：<br>`node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]"` | 向用户展示【变更前 vs 变更后】Diff 确认单、锁定 Namespace 与发布属性（业务开关 SWITCH），**停下等待用户明确确认** |
-| **用户明确确认（“确认修改”、“发布吧”、“同意更改”）** | **阶段 2 (用户确认后正式发布)**：<br>`node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]" --confirm` | 写入 Portal、发布版本并直连 ConfigService 验证客户端热生效结果 |
-| **“把测试环境 saas 的 timeout 改成 5000”** | `node scripts/apollo_modify.js saas timeout 5000` (先展示 Diff 确认单) | 自动嗅探多 Namespace，锁定所属 namespace，生成 Diff 待确认 |
-| **“修改测试环境 platform 的 application 空间下的某个 key 为 xxx”** | `node scripts/apollo_modify.js platform application <key> "<val>"` | 精准指定 Namespace 进行修改，隔离其他命名空间 |
-| **“把【线上/生产环境】iot 的 liveRunner.access.ucIdWhitelist 改成 [31534062,12]”** | **执行参谋模式 (后台只读摸底)**：<br>`node scripts/apollo_query.js iot liveRunner.access.ucIdWhitelist` | **绝不直接写线上！**<br>交付《线上配置变更建议单》（含当前值 vs 建议值 Diff、所属 Namespace、发布属性 SWITCH）并附带生产 Portal 直达链接，引导负责人亲自走审批发布 |
-| **“线上把 saas 的 timeout 改成 5000”** | `node scripts/apollo_query.js saas timeout` | 自动锁定命名空间与当前值，交付变更建议书与生产 Portal 直达链接 |
-| *“查下【测试环境】warehouse 最新的 10 条日志”* | `node scripts/test_log_query.js warehouse -n 10` | 测试环境容器日志表格，含 Pod 与泳道名 |
-| *“看下【测试环境】algo 的 500 报错或异常堆栈”* | `node scripts/test_log_query.js algo --level ERROR -t 30m` | 大禹泳道 Pod 异常原因与堆栈解析 |
-| *“根据 TraceId 361922... 查测试环境链路”* | `node scripts/test_log_query.js <app> --traceId "361922..."` | 跨测试容器追溯出入参与请求生命周期 |
-| *“查下大禹泳道 lixiaojing03 上部署的 algo 日志”* | `node scripts/test_log_query.js algo --lane lixiaojing03 -n 10` | 多泳道动态感知与日志过滤 |
-| **“查下 recorder 最新的 5 条图片数据 (线上)”** | `node scripts/cloud_mysql_query.js recorder "SELECT id, source, ctime FROM image_understanding_detail ORDER BY id DESC LIMIT 5"` | 线上数据库实时表数据表格，含耗时与行数 |
-| **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 |
-| **“查下【测试环境】saas 租户 1 库 (tenant1) 的数据”** | `node scripts/test_mysql_query.js saas tenant1 "SELECT * FROM algo_detect_report LIMIT 5"` | 多数据源精准切换，支持租户分库查验 |
-| **“查看仓颉系统测试环境有哪些数据源”** | `node scripts/test_mysql_query.js cangjie --list-ds` | 列出该微服务下所有已配置的多数据源及默认库 |
-| **"往测试环境 saas 库插一条配置数据"** | `node scripts/test_mysql_query.js saas "INSERT INTO t_config (key_name, value) VALUES ('test_key', 'val')"` | DML 写入，返回 affectedRows + insertId |
-| **"更新测试环境 iot 库的设备状态"** | `node scripts/test_mysql_query.js iot "UPDATE t_device SET status = 0 WHERE sn = 'abc123'"` | 有 WHERE 条件直接执行，返回 changedRows |
-| **"删除测试环境 saas 的过期临时数据"** | `node scripts/test_mysql_query.js saas "DELETE FROM t_temp WHERE created_at < '2026-01-01'"` | 有 WHERE 条件直接执行 |
-| **“指定端口 6763 和库名查线上 SQL”** | `node scripts/cloud_mysql_query.js 6763 utopia_scs_recorder "SELECT count(*) FROM image_understanding_detail"` | 线上自定义端口与库名统计输出 |
-| **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 |
-| **“查下 beijia-reach-event 最新的 3 条消息 (线上)”** | `node scripts/kafka_query.js -t beijia-reach-event -n 3` | 格式化 JSON 消息体、Partition、Offset 与时间展示 (Zero-Commit) |
-| **“查下【测试环境】工单流转事件消息”** | `node scripts/kafka_query.js -t 工单 -e test -n 3` | 自动匹配测试 Topic 与 Broker 进行无损拉取 |
-| **“看下触达消息的各分区水位/保留消息量”** | `node scripts/kafka_query.js -t 触达 --offsets-only` | 分区 Low/High 水位与保留消息总数看板 |
-| **“查下触达消费组 xxx 是否积压”** | `node scripts/kafka_query.js -t 触达 -g xxx --lag-only` | 分区 High/Committed/Lag 与消费组总积压看板 |
-| **“查下触达消费组 xxx 的生产/消费速率和多久能追平”** | `node scripts/kafka_query.js -t 触达 -g xxx --rate` | 生产速率、消费速率、Lag 变化、追平 ETA 与分区差分 |
-| **“查下包含工单号 T010020260907 的 Kafka 消息”** | `node scripts/kafka_query.js -t 工单 -q "T010020260907"` | 按单号或关键词在消息体内精准过滤 |
-| **“往测试环境发一条工单流转测试消息”** | `node scripts/kafka_send.js -t 工单 --use-sample -s orderCode=T-TEST-001 -s status=已接单` | 自动利用 Sample 模板替换字段并投递至测试集群 |
-| **“往测试环境某个 topic 发送特定 JSON 消息”** | `node scripts/kafka_send.js -t <topic> -d '<json>'` | 写入测试 Broker 并回显 Partition 与 Offset |
-| **“扫描工程目录更新 Kafka 资产沉淀”** | `node scripts/kafka_scan.js -o resources/default_kafka.json` | 批量扫描四大主目录并更新内置资产库 |
-| **“查下测试环境 iot_auth 的约束列表”** | `node scripts/luke_query.js ext` | 列出当前系统的全部约束维度 (serviceId, apiUrl, requestMethod 等) |
-| **“查看 serviceId 约束包含哪些微服务”** | `node scripts/luke_query.js ext serviceId` | 查看指定约束的所有枚举微服务项 |
-| **“查下包含‘门锁’的权限点”** | `node scripts/luke_query.js perm -q 门锁` | 检索匹配的权限点列表及关联约束数 |
-| **“看下 anjia:lock:infoView 权限点挂载的接口与约束”** | `node scripts/luke_query.js perm anjia:lock:infoView` | 提取权限点关联的微服务、API 路径与 HTTP Method 候选集合 |
-| **“查看角色列表或超管角色的权限”** | `node scripts/luke_query.js role admin` | 角色基础属性与全量权限点/限定约束树 |
-| **“查看 admin 角色下绑定了哪些员工”** | `node scripts/luke_query.js users admin` | 提取该角色绑定的工号、姓名与有效期 |
-| **“查看员工张林名下生效的所有角色与权限点”** | `node scripts/luke_query.js user 张林` | 聚合多角色生效权限点与约束并集全景画像，输出完整 Code 与 Portal 直达链接 |
-| **“对比张林和李四之间的权限差异与数据范围”** | `node scripts/luke_query.js diff-user 张林 李四` | 三层渐进式对比结论 (角色/权限点/数据约束)，定位缺少的具体权限并给出修复指引 |
-| **“在测试环境建一个新约束 myExt”** | `node scripts/luke_modify.js create-ext myExt 我的约束 Choice` | 直接创建全新约束字典项 |
-| **“往 serviceId 约束里追加一个微服务 my-new-svc”** | **阶段 1 (AI 强制 Pre-flight 探查)**：<br>`node scripts/luke_modify.js update-ext serviceId --add-choice "my-new-svc:新服务"` | 展示枚举 Diff 对比单，**停下等待用户明确确认** |
-| **用户明确确认更新约束** | **阶段 2 (用户确认后正式发布)**：<br>`node scripts/luke_modify.js update-ext serviceId --confirm --add-choice "my-new-svc:新服务"` | 正式写入 GraphQL 并回查校验 |
-| **“新建一个设备重启权限点 iot:device:reboot”** | `node scripts/luke_modify.js create-perm iot:device:reboot 设备重启 --service zulin-iot-platform --api /api/v1/reboot --method POST` | 直接创建全新权限点并挂载关联约束 |
-| **“为权限点 anjia:lock:infoView 追加一个新 API”** | **阶段 1 (AI 强制 Pre-flight 探查)**：<br>`node scripts/luke_modify.js update-perm anjia:lock:infoView --api "/api/v2/newLock"` | 输出 API 列表 Diff，**停下等待用户确认** |
-| **用户明确确认更新权限点** | **阶段 2 (用户确认后正式发布)**：<br>`node scripts/luke_modify.js update-perm anjia:lock:infoView --confirm --api "/api/v2/newLock"` | 正式提交更新并生效 |
-| **“新建一个业务角色 warehouse-manager”** | `node scripts/luke_modify.js create-role warehouse-manager 仓库经理 --desc "负责仓库运营"` | 直接创建全新角色 |
-| **“把权限点 anjia:storage:order 分配给库存管理员角色”** | **阶段 1 (AI 强制 Pre-flight 探查)**：<br>`node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --api "/anjia/custom/api"` | 计算角色权限树 Diff 与受影响人员评估，**停下等待用户确认** |
-| **用户明确确认角色授权** | **阶段 2 (用户确认后正式发布)**：<br>`node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --confirm --api "/anjia/custom/api"` | 正式写入角色授权并生效 |
-| **“给员工张林 (30560224) 绑定库存管理员角色”** | `node scripts/luke_modify.js bind-role-user anjiah5:inventoryAdmin 1000000030560224` | 直接调用人员绑定接口 |
-| **“我有权查哪些 ES 索引 / 查下搜索云平台索引列表”** | `node scripts/es_query.js --list-indexes` | 通过 `search.ke.com` 同步当前工号已授权的全部 ES 索引、Service ID 与描述 |
-| **“查下 1036710001 / 订单 ES 有哪些字段，字段是什么意思”** | `node scripts/es_query.js 1036710001 --schema -e prod` | 展示官方 Mapping（类型/可检索/路由键/嵌套子字段）、监听表来源与真实样本值，AI 据此向用户解释字段含义 |
-| **“查下线上 订单 / 1036710001 最新 10 条 ES 数据”** | `node scripts/es_query.js 订单 -n 10 -e prod` | 格式化文档关键字段表格与首条记录全量快照 (默认 PROD 只读) |
-| **“在测试环境查询 智能客服 / 1013506001 ES 数据”** | `node scripts/es_query.js 智能客服 -n 5 -e test` | 自动拉取 `detailBusinessQA` / `detailBusinessRD` 测试配置并直连查询（支持 `/search` 与 `/search/es`） |
-| **“按关键词或条件查 ES 数据”** | `node scripts/es_query.js 门锁 -q "合肥" --filter "cityCode:340100" -n 5` | 支持全文 query 检索、键值对过滤与 `--dsl` 自定义高级查询 |
-| **“在测试环境把门锁 10001 的电量在 ES 里改成 95”** | **阶段 1 (AI 强制 Pre-flight 预审)**：<br>`node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"battery": 95}' -e test` | 展示变更前现有值 vs 拟写入新值 Diff 对比单，**停下等待用户确认** |
-| **用户明确确认 ES 修改（“确认更新”、“提交写入”）** | **阶段 2 (用户确认后正式写入并回查)**：<br>`node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"battery": 95}' -e test --confirm` | 提交写网关并自动回查验证最新生效状态 |
-| **“在测试环境删除 ES 记录 10001”** | `node scripts/es_modify.js 门锁 --action delete --id "10001" -e test --confirm` | 提交删除指令并校验文档清除结果 |
-| **“在线上/生产环境修改或删除 ES 数据”** | **执行风控红线拦截 (物理阻断直写)** | **严禁自动化线上写入！** 触发 `assertWritePermitted` 拦截，提示线上仅支持只读查询 |
-| **“在这个页面上抓数据 / 测一下 / 导出 / 按上次的方式再来一遍”** | `node scripts/knowledge.js search '<域名> <路径关键段>' --kind page`，命中则整段执行对应流程，未命中则正常操作（见 [8.1](#81-页面操作流程沉淀与复用)） | 本次任务结果（数据、截图、检查结论）；有摸索过程时询问是否沉淀 |
-| **“抓取页面表格数据 / 结构化提取”** | `node scripts/cli/index.mjs eval --file "/tmp/extract.js"` (结合 `state` 与 `wait --idle`) | 输出结构化 JSON 数据并自动落盘 |
-| **“截取网页长图 / 截取局部组件”** | `node scripts/cli/index.mjs screenshot --full-page --out full.png` (或 `--sel` / `--ref`) | 捕获高保真整页长图或指定区域截图 |
-| **“抓取页面的后台接口请求 / 嗅探 API 数据”** | `cli net-start` $\rightarrow$ 触发页面交互 $\rightarrow$ `cli net-get --grep "api"` $\rightarrow$ `cli net-stop` | 截获后端原始 XHR/fetch JSON 响应 |
-| **“把这个页面操作记下来 / 补进页面手册”** | `node scripts/knowledge.js save --file <JSON> --expected-version <版本> --kind page` | 保存后回读，报告手册名称、版本与路径 |
-| **“白鸽网关登记了哪些微服务 / 查下网关服务列表”** | `node scripts/baige_query.js apps [-q <kw>] [-e test|preview|prod]` | 格式化微服务网关登记列表、转发方式与创建人表格 |
-| **“查下 utopia-scs-algo 在白鸽网关上的配置”** | `node scripts/baige_query.js detail utopia-scs-algo [-e test|preview|prod]` | 微服务网关详细属性、转发地址、授权管理员列表及 Web 直达链接 |
-| **“查看算法服务在白鸽网关上的路由组与转发规则”** | `node scripts/baige_query.js routes utopia-scs-algo [-e test|preview|prod]` | 路由组层级树、前缀、登录校验与子路由 URI 规则 |
-| **“查看算法服务的白鸽网关管理员列表”** | `node scripts/baige_query.js users utopia-scs-algo [-e test|preview|prod]` | 列出授权管理员名单与当前工号编辑权限状态 |
-| **“对比 utopia-scs-algo 在测试/预发/生产三环境的网关状态”** | `node scripts/baige_query.js check utopia-scs-algo` | **跨环境三态对照**，并发探查测试、预发与生产服务登记、转发目标与路由数差异看板 |
-| **“在测试环境给 utopia-scs-algo 添加网关管理员 30560224”** | **阶段 1 (Pre-flight 预审)**：<br>`node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test` | 展示添加管理员 Pre-flight 预审信息，**停下等待用户确认** |
-| **用户明确确认添加网关管理员** | **阶段 2 (正式提交)**：<br>`node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test --confirm` | 正式提交请求并回查校验生效状态 |
-| **“在测试环境移除网关管理员 30560224”** | **阶段 1 (Pre-flight 预审)**：<br>`node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test` | 🔴 触发高危操作预警与人数核验，**停下等待用户确认** |
-| **“查下张林 / 30560224 在测试环境 UC 里的组织、职位和所有角色”** | `node scripts/uc_query.js user 30560224` | 聚合 UC 基础信息、直属上级、主兼岗 EHR 职位、UC 手动角色、关系中心绑定角色与管辖范围、最近调转记录 |
-| **“在测试环境 UC 找几个北京在职的商圈经理测试账号”** | `node scripts/uc_query.js users --city 北京 --role 商圈经理 --status 在职 -n 10` | 中文城市/角色自动转码，分页输出匹配的在职测试账号列表（UCID、系统号、姓名、所在门店组织） |
-| **“查下某人在测试环境 UC 绑定了哪些角色及管辖门店”** | `node scripts/uc_query.js roles 10138597` | 输出 UC 岗位角色与关系配置中心绑定的角色及关联对象列表 |
-| **“查下测试环境 UC 组织 XFTJ8001 的负责人、路径和下属成员”** | `node scripts/uc_query.js org XFTJ8001` | 聚合组织详情、全路径、组织负责人、下级子组织、在职成员与组织异动历史 |
-| **“查下测试环境 UC 的业务组织树 / 城市公司 / 人-人 / 人-组织关系”** | `node scripts/uc_query.js org-tree [orgCode]` / `companies` / `p2p` / `user-org` | 探查业务组织树、城市公司字典或人-人/人-组织/组织-组织关系列表 |
-| **“在测试环境 UC 给 30560224 新增一个 XFTJ8001 组织的商圈经理角色”** | **阶段 1 (AI 强制 Pre-flight 预审)**：<br>`node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理` | 展示目标员工现有手动角色与拟新增角色 Diff 预审单，**停下等待用户明确确认** |
-| **用户明确确认新增/修改/删除 UC 角色** | **阶段 2 (用户确认后正式写入并回查)**：<br>`node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理 --confirm` | 正式提交 GraphQL Mutation 并自动回查校验最新生效角色列表 |
-| **“查下前端项目 life-fe-intelligentize 最近报错 / 某条异常详情”** | `node scripts/arms_query.js errors life-fe-intelligentize` / `logs life-fe-intelligentize -q "<关键词>" -t today` | 自动匹配灯塔项目 ID，输出运行时/资源/白屏 TOP 榜或自定义检索/聚合结果 |
-| **“根据灯塔 viewid 还原这次前端访问发生了什么”** | `node scripts/arms_query.js trace <project> <viewId>` | 按时间正序还原 PV、Web Vitals、API 慢/失败请求与 JS/Console 异常全链路 |
-| **“看下前端项目健康分 / Web Vitals 性能 / API 接口失败率 / PVUV”** | `node scripts/arms_query.js overview|perf|api|pvuv <project>` | 输出健康评分、LCP/FCP/TTFB/CLS 分位、失败接口列表或页面流量排行 |
+| 用户自然语言诉求示例 | AI 后台自动执行的标准命令 | 预期交付产物 | 详细参数手册 |
+| :--- | :--- | :--- | :--- |
+| *“查下 iot-platform 最新 10 条日志”* | `node scripts/fast_query.js -a iot-platform -t 15m -n 10` | 格式化概况与最新日志表格 | [fast-log-guide.md](references/fast-log-guide.md) |
+| *“看下刚才报的 500 错误/异常堆栈”* | `node scripts/fast_query.js -a <app> --level ERROR -t 30m -n 10` | 异常原因、报错位置与堆栈解析 | [fast-log-guide.md](references/fast-log-guide.md) |
+| *“根据 TraceId 361922-10... 抓下调用链路”* | `node scripts/fast_query.js -a <app> --traceId "361922-10..."` | **必须输出 Mermaid 时序交互图** 与调用耗时 | [fast-log-guide.md](references/fast-log-guide.md) |
+| *“抓取 /api/sync/lockDetail 接口的真实响应数据”* | `node scripts/fast_query.js -a <app> --uri "/api/sync/lockDetail" --bltag request_out --slim -n 5` | 提取并格式化脱敏后的出参 JSON | [fast-log-guide.md](references/fast-log-guide.md) |
+| *“查下【测试环境】warehouse 最新的 10 条日志”* | `node scripts/test_log_query.js warehouse -n 10` | 测试环境容器日志表格，含 Pod 与泳道名 | [fast-log-guide.md](references/fast-log-guide.md) |
+| *“看下【测试环境】algo 的 500 报错或异常堆栈”* | `node scripts/test_log_query.js algo --level ERROR -t 30m` | 大禹泳道 Pod 异常原因与堆栈解析 | [fast-log-guide.md](references/fast-log-guide.md) |
+| **“查下 iot-platform 在 Apollo 上的配置”** | `node scripts/apollo_query.js iot-platform` | 微服务全量配置项概览（默认线上环境，自动去重） | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“查下【测试环境】saas 的 Apollo 配置或开关”** | `node scripts/apollo_query.js saas -e test` | 测试环境实时配置明细 | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“查下【预发环境】saas 的超时配置 timeout”** | `node scripts/apollo_query.js saas -e preview timeout` | 预发环境超时参数明细 | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“查下线上 iot 某个配置项的发布轨迹 / 谁改的”** | `node scripts/apollo_history.js iot <key>` | 历次 Release 逐版本比对，输出变更人、时间与 Diff | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“把测试环境 iot 的 liveRunner.access.ucIdWhitelist 改成 [31534062,12]”** | **阶段 1 (AI 强制 Pre-flight 探查)**：<br>`node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]"` | 展示【变更前 vs 变更后】Diff 确认单，**停下等待确认** | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **用户明确确认修改 Apollo 配置** | **阶段 2 (确认后正式发布)**：<br>`node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]" --confirm` | 写入 Portal、发布版本并回查验证热生效 | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“把【线上/生产环境】iot 的白名单改成 [31534062]”** | **执行参谋模式 (后台只读摸底)**：<br>`node scripts/apollo_query.js iot liveRunner.access.ucIdWhitelist` | **绝不直接写线上！** 交付《线上变更建议单》与 Portal 链接 | [apollo-config-guide.md](references/apollo-config-guide.md) |
+| **“查下前端项目 life-fe-intelligentize 最近报错 / 异常详情”** | `node scripts/arms_query.js errors life-fe-intelligentize` / `logs life-fe-intelligentize -q "<关键词>" -t today` | 自动匹配灯塔项目 ID，输出运行时/资源/白屏 TOP 榜 | [arms-monitor-guide.md](references/arms-monitor-guide.md) |
+| **“根据灯塔 viewid 还原这次前端访问发生了什么”** | `node scripts/arms_query.js trace <project> <viewId>` | 按时间正序还原 PV、Web Vitals、API 失败与 JS 异常链路 | [arms-monitor-guide.md](references/arms-monitor-guide.md) |
+| **“看下前端项目健康分 / Web Vitals 性能 / API 失败率 / PVUV”** | `node scripts/arms_query.js overview\|perf\|api\|pvuv <project>` | 输出健康评分、LCP/FCP 分位、失败接口列表与流量排行 | [arms-monitor-guide.md](references/arms-monitor-guide.md) |
+| **“查下测试环境 iot_auth 的约束列表”** | `node scripts/luke_query.js ext` | 列出当前系统的全部约束维度 (serviceId, apiUrl 等) | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“看下 anjia:lock:infoView 权限点挂载的接口与约束”** | `node scripts/luke_query.js perm anjia:lock:infoView` | 提取权限点关联的微服务、API 路径与 HTTP Method | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“查看员工张林名下生效的所有角色与权限点”** | `node scripts/luke_query.js user 张林` | 聚合多角色权限点与约束并集全景画像，输出 Code 与直达链接 | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“对比张林和李四之间的权限差异与数据范围”** | `node scripts/luke_query.js diff-user 张林 李四` | 三层渐进式对比结论 (角色/权限点/数据约束) 与排障修复指引 | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“为权限点 anjia:lock:infoView 追加一个新 API”** | **阶段 1 (Pre-flight)**: `node scripts/luke_modify.js update-perm anjia:lock:infoView --api "/api/v2/newLock"`<br>**阶段 2 (确认后)**: 追加 `--confirm` | 展示 API 列表 Diff，用户确认后正式提交生效 | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“把权限点 anjia:storage:order 分配给库存管理员角色”** | **阶段 1 (Pre-flight)**: `node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order --api "/api"`<br>**阶段 2 (确认后)**: 追加 `--confirm` | 计算权限树 Diff 与受影响人员评估，确认后写入 | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“给员工张林 (30560224) 绑定库存管理员角色”** | `node scripts/luke_modify.js bind-role-user anjiah5:inventoryAdmin 1000000030560224` | 直接调用人员绑定接口 | [luke-permission-guide.md](references/luke-permission-guide.md) |
+| **“我有权查哪些 ES 索引 / 查下搜索云平台索引列表”** | `node scripts/es_query.js --list-indexes` | 同步当前工号已授权的全部 ES 索引、Service ID 与描述 | [es-search-guide.md](references/es-search-guide.md) |
+| **“查下 1036710001 / 订单 ES 有哪些字段，字段是什么意思”** | `node scripts/es_query.js 1036710001 --schema -e prod` | 展示 Mapping 字段、类型、上游 binlog 表来源与样本值 | [es-search-guide.md](references/es-search-guide.md) |
+| **“查下线上 订单 / 1036710001 最新 10 条 ES 数据”** | `node scripts/es_query.js 订单 -n 10 -e prod` | 格式化文档关键字段表格与首条全量快照 (PROD 严格只读) | [es-search-guide.md](references/es-search-guide.md) |
+| **“在测试环境查询 智能客服 / 1013506001 ES 数据”** | `node scripts/es_query.js 智能客服 -n 5 -e test` | 自动匹配测试环境网关与配置并直连查询 | [es-search-guide.md](references/es-search-guide.md) |
+| **“在测试环境把门锁 10001 的电量在 ES 里改成 95”** | **阶段 1 (Pre-flight)**: `node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"battery": 95}' -e test`<br>**阶段 2 (确认后)**: 追加 `--confirm` | 展示新旧值 Diff，用户确认后写入并自动回查验证 | [es-search-guide.md](references/es-search-guide.md) |
+| **“白鸽网关登记了哪些微服务 / 查下网关服务列表”** | `node scripts/baige_query.js apps [-q <kw>] [-e test\|preview\|prod]` | 格式化微服务网关登记列表、转发方式与创建人表格 | [baige-gateway-guide.md](references/baige-gateway-guide.md) |
+| **“查看算法服务在白鸽网关上的路由组与转发规则”** | `node scripts/baige_query.js routes utopia-scs-algo [-e test\|preview\|prod]` | 路由组层级树、前缀、登录校验与子路由 URI 规则 | [baige-gateway-guide.md](references/baige-gateway-guide.md) |
+| **“对比 utopia-scs-algo 在测试/预发/生产三环境的网关状态”** | `node scripts/baige_query.js check utopia-scs-algo` | **跨环境三态对照**，并发探查三环境服务登记与路由数差异 | [baige-gateway-guide.md](references/baige-gateway-guide.md) |
+| **“在测试环境给 utopia-scs-algo 添加网关管理员 30560224”** | **阶段 1 (Pre-flight)**: `node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test`<br>**阶段 2 (确认后)**: 追加 `--confirm` | 展示 Pre-flight 预审信息，确认后正式提交并回查 | [baige-gateway-guide.md](references/baige-gateway-guide.md) |
+| **“查下张林 / 30560224 在测试环境 UC 里的组织和角色”** | `node scripts/uc_query.js user 30560224` | 聚合 UC 基础信息、汇报链、主兼岗职位、手动角色与管辖范围 | [uc-org-guide.md](references/uc-org-guide.md) |
+| **“在测试环境 UC 找几个北京在职的商圈经理测试账号”** | `node scripts/uc_query.js users --city 北京 --role 商圈经理 --status 在职 -n 10` | 中文城市/角色自动转码，分页输出匹配的在职测试账号 | [uc-org-guide.md](references/uc-org-guide.md) |
+| **“查下测试环境 UC 组织 XFTJ8001 的负责人和下属成员”** | `node scripts/uc_query.js org XFTJ8001` | 聚合组织详情、全路径、负责人、子组织与成员列表 | [uc-org-guide.md](references/uc-org-guide.md) |
+| **“在测试环境 UC 给 30560224 新增商圈经理角色”** | **阶段 1 (Pre-flight)**: `node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理`<br>**阶段 2 (确认后)**: 追加 `--confirm` | 展示角色 Diff 预审单，用户确认后正式写入并回查 | [uc-org-guide.md](references/uc-org-guide.md) |
+| **“查下 beijia-reach-event 最新的 3 条消息 (线上)”** | `node scripts/kafka_query.js -t beijia-reach-event -n 3` | 格式化 JSON 消息体、Partition、Offset (Zero-Commit) | [kafka-guide.md](references/kafka-guide.md) |
+| **“看下触达消息的各分区水位/消费组积压与速率”** | `node scripts/kafka_query.js -t 触达 --offsets-only` / `--lag-only` / `--rate` | 输出分区水位、消费组真实积压与追平 ETA 差分看板 | [kafka-guide.md](references/kafka-guide.md) |
+| **“往测试环境发一条工单流转测试消息”** | `node scripts/kafka_send.js -t 工单 --use-sample -s orderCode=T-001 -s status=已接单` | 自动利用 Sample 模板替换字段并投递至测试集群 | [kafka-guide.md](references/kafka-guide.md) |
+| **“查下 recorder 最新的 5 条图片数据 (线上)”** | `node scripts/cloud_mysql_query.js recorder "SELECT id, source, ctime FROM image_understanding_detail ORDER BY id DESC LIMIT 5"` | 线上服务云从库只读查询，输出耗时与数据表格 | [database-guide.md](references/database-guide.md) |
+| **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 | [database-guide.md](references/database-guide.md) |
+| **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
+| **“把当前分支构建部署到测试环境”** | `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
+| **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
+| **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 | [dinsight-query-guide.md](references/dinsight-query-guide.md) |
+| **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
 
 ---
 
@@ -161,30 +92,31 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 
 ```mermaid
 flowchart TD
-    A["用户提出自然语言诉求 (查日志 / 查配置 / 改测试配置 / 提线上变更 / 追链路 / 查数据库 / 问 Dinsight)"] --> B{"意图类型判定"}
+    A["用户提出自然语言诉求 (查日志 / 查配置 / 改测试配置 / 提线上变更 / 追链路 / 查库 / 问 Dinsight)"] --> B{"意图类型判定"}
     
     B -->|"查日志 / 500 报错"| C1["后台执行 scripts/fast_query.js (-a, --level ERROR)"]
     B -->|"追溯 TraceId"| C2["后台执行 scripts/fast_query.js (--traceId)"]
-    B -->|"查 Apollo 配置/开关"| C3["后台执行 scripts/apollo_query.js (appId, keyword)"]
+    B -->|"查 Apollo 配置/轨迹"| C3["后台执行 scripts/apollo_query.js / apollo_history.js"]
     B -->|"改【测试环境】Apollo 配置"| C7["后台执行 scripts/apollo_modify.js [Dry-run Diff]"]
     B -->|"提【线上生产】Apollo 变更"| C8["后台执行 scripts/apollo_query.js (只读摸底)"]
-    B -->|"查线上生产数据库"| C4["后台执行 scripts/cloud_mysql_query.js (appId, sql)"]
-    B -->|"查线下/测试数据库"| C5["后台执行 scripts/test_mysql_query.js (appId, [ds], sql)"]
-    B -->|"问 Dinsight 查大数据"| C9["后台执行 scripts/dinsight_query.js (自然语言问题)"]
+    B -->|"前端监控 / ARMS 排障"| C11["后台执行 scripts/arms_query.js (errors / trace / perf)"]
+    B -->|"查线上生产数据库"| C4["后台执行 scripts/cloud_mysql_query.js (只读)"]
+    B -->|"查/改线下测试数据库"| C5["后台执行 scripts/test_mysql_query.js (WHERE 保护)"]
     B -->|"查/改 Luke 权限中心"| C10["后台执行 scripts/luke_query.js 或 luke_modify.js"]
+    B -->|"白鸽网关 / UC 组织治理"| C12["后台执行 scripts/baige_*.js 或 scripts/uc_*.js"]
+    B -->|"问 Dinsight 查数 / Kafka"| C9["后台执行 scripts/dinsight_query.js 或 kafka_query.js"]
 
     C1 --> D1["提取 URI, 状态码, 耗时, 错误堆栈"]
     C2 --> D2["按时间正序排列，自动绘制 Mermaid 时序图"]
-    C3 --> D3["结构化提取配置 Key，美化内嵌 JSON 对象"]
-    C7 --> D7["展示【修改前 vs 修改后】Diff 对比单并等待用户确认"]
+    C3 & C11 --> D3["结构化提取配置/监控指标，定位异常链路"]
+    C7 --> D7["展示【修改前 vs 修改后】Diff 对比单并等待用户明确确认"]
     D7 -->|用户明确确认| E7["后台追加 --confirm 执行修改与发布，并校验热生效"]
     C8 --> D8["生成《线上变更建议单》(Diff + 风险评估) ＋ 生产 Portal 直达链接"]
     D8 --> E8["引导负责人在官方 Portal 亲自走合规审批与发布 (零越权、零资损)"]
-    C4 & C5 --> D4["格式化 Markdown 数据表格，标注耗时与行数"]
-    C9 --> D9["提取 Dinsight 回答、SQL/指标工具与错误摘要"]
-    C10 --> D10["输出权限树/人员列表；改动展示 Diff，高危操作强制经确认后 --confirm 提交"]
+    C10 & C12 --> D10["展示权限/网关/组织 Diff 预审单，高危操作强制经确认后 --confirm 提交"]
+    C4 & C5 & C9 --> D4["格式化 Markdown 数据表格，标注耗时与行数"]
 
-    D1 & D2 & D3 & D4 & D9 & D10 & E7 & E8 --> E["向用户交付高可读性诊断报告与结论"]
+    D1 & D2 & D3 & D4 & D10 & E7 & E8 --> E["向用户交付高可读性诊断报告与结论"]
     E -.-> F["💡 若需免发版订正脏数据，主动引导唤起 leo-live-runner"]
     E --> G{"本次是否形成可复用且已验证的新方法或判断分支？"}
     G -->|否| Z["结束，不询问沉淀"]
@@ -201,927 +133,61 @@ flowchart TD
 
 ---
 
-## ⚡ 1. FAST 日志检索内部 CLI 参数速查
-AI 后台执行 `node scripts/fast_query.js [flags]`：
-
-| 参数 Flag | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `--app` | `-a` | `iot-platform` | 目标微服务名 (如 `iot-platform`, `utopia-scs-saas`) |
-| `--query` | `-q` | `*` | Lucene 检索短语 / 表达式 |
-| `--time` | `-t` | `24h` | 相对时间范围 (如 `15m`, `1h`, `24h`, `7d`) |
-| `--from` | - | `null` | 起始时间 (支持 `2026-08-31 14:00:00` 或 `now-1h`) |
-| `--to` | - | `now` | 结束时间 (支持绝对时间或 `now`) |
-| `--size` | `-n` | `20` (Trace: `50`) | 最大返回日志条数 |
-| `--order` | `-o` | `desc` (Trace: `asc`) | 排序方式: `desc` (最新在前) 或 `asc` (正序链路) |
-| `--level` | `-l` | `null` | 日志级别过滤: `ERROR`, `WARN`, `INFO`, `DEBUG` |
-| `--bltag` | - | `null` | 出入参标签: `request_in`, `request_out` 等 |
-| `--uri` | `-u` | `null` | 接口 URI 过滤 (如 `/api/sync/lockDetail`) |
-| `--traceId` | `--tid` | `null` | 指定 TraceId (自动切换为正序链路回溯模式) |
-| `--slim` | - | `false` | 瘦身模式，截断超长报文与堆栈 JSON |
-| `--format` | `-f` | `json` | 输出格式: `json`, `brief`, `table` |
-
-### 1.2 线下/测试环境：Paoding Loki 容器与泳道日志检索
-AI 后台执行 `node scripts/test_log_query.js <appId> [options]`：
-
-| 参数 Flag | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<appId>` | - | 必填 | 目标微服务别名 (如 `saas`, `algo`, `warehouse`, `iot`) |
-| `--query` | `-q` | `*` | 关键词或报错过滤短语 (如 `NullPointer`, `Timeout`) |
-| `--level` | `-l` | `null` | 日志级别: `ERROR`, `WARN`, `INFO`, `DEBUG` |
-| `--traceId` | `--tid` | `null` | 指定 TraceId 过滤与调用链回溯 |
-| `--lane` | `--ns` | `null` | 指定大禹泳道名或命名空间 (如 `lixiaojing02`, `lixiaojing03`) |
-| `--pod` | - | `null` | 显式指定 Pod 实例名称 |
-| `--time` | `-t` | `1h` | 相对时间跨度 (如 `15m`, `30m`, `1h`, `2h`) |
-| `--size` | `-n` | `20` (Trace: `50`) | 最大返回日志条数 |
-| `--format` | `-f` | `table` | 输出格式: `table` (表格), `brief` (紧凑), `json` |
-| `--slim` | - | `false` | 瘦身模式，截断超长堆栈或报文 |
-| `--set-cookie`| - | - | 保存更新 Paoding 登录 Cookie 凭证至本地缓存 |
-
-> 💡 **自动分流支持**：在 `fast_query.js` 中指定 `--env test` 时，底层会自动委派至 `test_log_query.js` 容器直连通道。
-
-## ⚙️ 2. Apollo 配置探查与测试环境动态修改
-
-### 2.1 Apollo 全环境配置只读探查 (`scripts/apollo_query.js`)
-AI 后台执行 `node scripts/apollo_query.js <appId|alias> [namespace|keyKeyword] [keyKeyword] [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<appId\|alias>` | - | 必填 | 目标微服务唯一 ID 或口语别名 (如 `saas`, `platform`, `iot`) |
-| `[namespace\|keyword]` | - | 可选 | 命名空间（若含 `.` 或等于 `application`）或 key 检索词 |
-| `[keyKeyword]` | - | 可选 | 当第 2 个参数为命名空间时，此参数为 key 关键词 |
-| `--env` | `-e` | `prod` | **目标环境**: `test` (测试), `preview` (预发), `prod` (生产), `dev` (开发) |
-| `--exact` | - | `false` | 精确匹配 key（默认采用不区分大小写的模糊包含） |
-| `--cluster` | - | `default` | 集群名称 |
-| `--server` | - | 动态匹配 | 显式覆盖 Apollo ConfigService 服务端地址 |
-| `--json` | - | `false` | 输出纯 JSON 格式 |
-
----
-
-### 2.2 【测试环境】Apollo 配置动态修改与两阶段发布 (`scripts/apollo_modify.js`)
-AI 后台执行 `node scripts/apollo_modify.js <appId|alias> [namespace] <key> <value> [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<appId\|alias>` | - | 必填 | 目标微服务 ID 或别名 (如 `iot`, `saas`, `platform`, `recorder`) |
-| `[namespace]` | - | 自动嗅探 | 命名空间。不传时**全自动探测所有 Namespace** 并精确定位所属空间；传则精准修改指定空间 |
-| `<key>` | - | 必填 | 待修改的配置键名 (如 `liveRunner.access.ucIdWhitelist`, `test.switch`) |
-| `<value>` | - | 必填 | 新的配置目标值 (如 `"[31534062,12]"`, `true`, `5000`) |
-| `--confirm` | - | `false` | **发布确认门禁**。未提供时为 Pre-flight 安全预览模式，提供后真正执行写入与发布 |
-| `--type <1\|2\|3>` | `-t` | `3` (switch) | **发布属性**：`3` 或 `switch` (业务开关，默认且推荐), `1` (业务变更), `2` (业务降级) |
-| `--comment` | `-m` | 自动生成 | 本次发布说明 (例如 `AI 辅助修改配置: <key>`) |
-| `--cookie` | - | 动态读取 | 临时传入 Apollo Portal Cookie (默认自动读取 `~/.shrimp`) |
-| `--json` | - | `false` | 以 JSON 格式输出 Diff 或发布结果 |
-
-#### 🛡️ 核心风控与安全规范 (Zero Silent Mutation)
-1. **严格两阶段发布机制（绝对禁止静默变更）**：
-   - ⚠️ **严禁 AI 直接带 `--confirm` 一步到位修改配置！**
-   - **阶段一 (Pre-flight / Dry-Run)**：AI 收到修改诉求后，必须先在后台执行不带 `--confirm` 的命令：
-     ```bash
-     node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]"
-     ```
-     提取出【当前旧值 vs 目标新值】Diff、锁定目标微服务、所属 Namespace 与发布属性，形成可视化 Diff 确认单呈现给用户，询问：*“请您确认是否将配置修改为以上内容并发布？”*；
-   - **阶段二 (Post-flight / Commit)**：用户回复明确肯定指令（如 *“确认”、“发布吧”、“修改吧”*）后，AI 再次在后台追加 `--confirm` 执行提交：
-     ```bash
-     node scripts/apollo_modify.js iot liveRunner.access.ucIdWhitelist "[31534062,12]" --confirm
-     ```
-     提交后脚本会自动直连 ConfigService 回查热生效状态，向用户交付发布单号与最新生效值。
-2. **发布属性规范**：
-   - 默认且必须为【业务开关】(`releaseAttribute: "3"`)，符合贝壳测试环境配置变更管理与审计规范。
-3. **多 Namespace 隔离与自动定位**：
-   - 脚本自动读取目标微服务的所有 Namespace。若用户未显式指定，脚本会自动在所有 Namespace 中搜索该 Key 并精确定位所属 Namespace；
-   - 亦可显式传入 Namespace（如 `node scripts/apollo_modify.js iot application liveRunner.access.ucIdWhitelist "[31534062,12]"`），确保隔离其他 Namespace，绝不串改其它配置。
-4. **鉴权凭证规范（精准引导，严禁引导安装外部浏览器）**：
-   - 目标站点：`http://test-apollo.portal.life.ke.com`
-   - 核心凭证 Cookie 键名：**`jt_apollo_login_token`**
-   - 本地持久化路径：`~/.shrimp/skills/live-inspector/test_apollo_cookie.json`
-   - 凭证缺失或明确失效时，脚本默认通过已有 Chrome 扩展（**Leo cookie.txt Locally**）自动获取；浏览器未登录时引导用户登录后重试，手动复制仅作兜底。**严禁出现任何引导用户安装 `ego-browser` 的言论。**
-
----
-
-### 2.3 【生产环境】Apollo 配置变更参谋模式 (Production Change Advisor)
-
-> 🚨 **【生产环境铁律：零直写原则 (Zero Direct Mutation)】**
-> - 生产环境配置直接关联线上真实用户体验与系统可用性，任何脚本直写均存在严重越权、绕过审计与引发级联故障的资损风险；
-> - **AI 绝对禁止直接调用写接口对线上 Apollo 执行写入或发布！**
-> - 当用户表达线上修改意图时，AI **自动触发变更参谋模式**：AI 作为智囊参谋，负责摸底、比对、排雷并生成标准化建议书，最终由业务负责人在官方受控环境中执行审批与发布。
-
-#### 📋 参谋服务闭环工作流 (Advisor SOP)
-1. **纯只读秒级摸底**：
-   AI 在后台静默执行只读探查命令：
-   ```bash
-   node scripts/apollo_query.js <appId> <key>
-   ```
-   秒级拉取目标微服务在生产环境当前的真实生效值与所在 Namespace，排查是否已存在该 Key 或格式是否特殊（如 JSON 数组、超时毫秒等）。
-2. **生成《线上配置变更建议单 (Production Change Proposal)》**：
-   AI 必须输出结构化的变更建议单，向用户呈现：
-   - 🎯 **变更目标**：目标应用 (`appId`)、所属集群 (`default`)、精确命名空间 (`namespaceName`)；
-   - 📊 **配置对比 (Diff)**：当前生效值 (Current) vs 建议目标值 (Target)；
-   - 🏷️ **发布属性**：强制遵循【业务开关 (SWITCH, releaseAttribute: 3)】或【业务变更 (CHANGE, 1)】；
-   - ⚠️ **影响与风险评估**：分析该变更可能产生的影响（如超时时间调整是否引起下游雪崩、白名单工号格式是否正确、是否涉及 JSON 语法合规性）。
-3. **交付生产 Portal 官方直达链接 (Deep-Link)**：
-   为避免用户在 Apollo 控制台众多应用与命名空间中耗时翻找，AI 自动生成直达该命名空间的链接：
-   ```text
-   🔗 生产 Portal 直达链接:
-   http://apollo.portal.life.ke.com/#/appid={appId}&env=PROD&cluster=default&namespace={namespace}
-   ```
-4. **引导负责人人工审批发布**：
-   指引用户点击直达链接，登录个人合规账号，直接在目标页面完成修改、走正规变更审批与发布流程。
-
----
-
-### 2.4 Apollo 单项配置发布轨迹与时序变迁追溯 (`scripts/apollo_history.js`)
-AI 后台执行 `node scripts/apollo_history.js <appId|alias> [namespace] <key> [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<appId\|alias>` | - | 必填 | 目标微服务唯一 ID 或业务别名 (如 `iot`, `saas`, `platform`) |
-| `[namespace]` | - | 自动嗅探 | 命名空间。未指定时全自动扫描应用所有 Namespace 定位该 Key |
-| `<key>` | - | 必填 | 待追踪的配置项键名 (如 `bindWhiteList`, `rentButton`, `timeout`) |
-| `--env` | `-e` | `prod` | **目标环境**: `prod` (生产, 默认), `test` (测试), `preview` (预发) |
-| `--cluster` | `-c` | `default` | 集群名称 (预发环境自动探测 `preview` / `prev` 集群，未配置则优雅回退至 `default`) |
-| `--depth` | `-n` | `50` | 最大扫描历史版本数量 (支持 10~200，便于回溯半年或更早版本) |
-| `--page-size` | `-s` | `20` | 单次分页批量抓取条数 (5~50) |
-| `--all` | - | `false` | 输出扫描到的所有发布版本 (默认仅输出该 Key 发生变更的节点) |
-| `--json` | - | `false` | 以结构化 JSON 格式输出历史轨迹 |
-| `--cookie` | - | 动态读取 | 临时覆盖 Portal 请求 Cookie (默认自动从中继扩展获取) |
-| `--set-cookie` | - | - | 手动保存更新本地 Cookie 缓存 |
-
-#### 🔍 核心特性与处理逻辑
-1. **逐版本时序状态机 Diff**：
-   - 循环拉取历次 Release 快照，对目标 Key 在相邻两次发布之间的状态变化进行萃取；
-   - 明确标注变更类型：**🟢 新增 (CREATE)**、**🟡 修改 (MODIFY)**、**🔴 删除 (DELETE)** 与 **⚪ 基准快照 (BASELINE)**；
-   - 输出完整的 **发布版本号 (`releaseTitle`)**、**发布时间 (`releaseTimeFormatted`)**、**操作人员工号与姓名 (`operatorDisplayName`)** 与 **发布说明 (`releaseComment`)**。
-2. **预发环境 (PREVIEW) 自适应与闭环核验**：
-   - 当指定 `-e preview` 时，工具会自动探测生产控制台下是否存在 `preview` 或 `prev` 专有集群；
-   - 若微服务预发无独立集群（直接共享线上配置），自动给出说明并呈现线上发布轨迹；
-   - **闭环生效校验**：无论任何环境，工具均会自动连通该环境专属 ConfigService（如 `http://prev.config.apollo.ke.com`）核验当前客户端真实生效值，确保版本轨迹与生效状态相互印证。
-
----
-
-## 🗄️ 3. 数据库查询内部 CLI 参数速查 (线上云网关 / 线下直连双模)
-
-### 3.1 线上生产环境：服务云 MySQL 自助查询
-AI 后台执行 `node scripts/cloud_mysql_query.js <appId|port> [database|sql] [sql] [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<appId\|port>` | - | 必填 | 目标微服务别名 (如 `recorder`, `saas`, `algo`) 或端口号 (如 `6763`) |
-| `[database\|sql]` | - | 必填 | 库名（当第 1 参数为端口时）或待执行的 SQL（当第 1 参数为服务别名时） |
-| `[sql]` | - | 可选 | 待执行的 SQL 语句（当第 1 参数为端口号时） |
-| `--role` | - | `Slave` | 查询角色: `Slave` (从库只读) 或 `Master` (主库) |
-| `--env` | `-e` | `prod` | 环境控制，指定 `test` / `dev` 时自动委派给 `test_mysql_query.js` |
-| `--set-token` | - | - | 保存更新服务云 `cloud_console_token_egg` 凭证至本地缓存 |
-| `--token` | - | - | 临时覆盖 Token |
-| `--json` | - | `false` | 输出纯 JSON 数据结果 |
-
-> 💡 **只读与表结构探查守则**：
-> 1. **只读保护**：服务云线上数据库仅允许只读查询 (`SELECT`, `SHOW`, `EXPLAIN`, `DESCRIBE`)，严禁执行任何写入/删除；
-> 2. **表结构探查**：未知线上表名或字段名时，切勿盲猜！可先执行 `node scripts/cloud_mysql_query.js <appId> "SHOW TABLES"` 列举库内所有表，或执行 `DESCRIBE <tableName>` 探查字段名与类型；
-> 3. **资产目录**：可执行 `node scripts/cloud_mysql_query.js --list-dbs` 查看当前账号已授权的所有端口与数据库列表。
-
-### 3.2 线下/测试环境：MySQL 本地直连查询与写入 (零外部依赖、多数据源支持)
-AI 后台执行 `node scripts/test_mysql_query.js <service|host> [datasource|sql] [sql] [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `<service\|host>` | - | 必填 | 微服务别名 (如 `saas`, `iot`, `recorder`, `cangjie`) 或测试库 Host/Port |
-| `[datasource]` | - | 可选 | 多数据源别名 (如 `tenant0`, `tenant1`, `base`)，未填自动走默认主库 |
-| `[sql]` | - | 必填 | 待执行的 SQL：查询 (`SELECT`/`SHOW`/`DESC`/`EXPLAIN`)、写入 (`INSERT`/`UPDATE`/`DELETE`/`REPLACE`)、结构 (`CREATE`/`ALTER`/`DROP`/`TRUNCATE`) |
-| `--ds <alias>` | - | 自动匹配 | 显式指定数据源名称 |
-| `--list-ds` | - | `false` | 列出该服务下全部已注册的测试数据源与默认库 |
-| `--force` | - | `false` | 强制执行无 WHERE 条件的 UPDATE/DELETE（默认拦截，防止全表误操作） |
-| `-p, --password` | - | 动态嗅探 | 临时提供密码（握手验通后自动静默持久化至 `~/.shrimp`） |
-| `--max-rows` | - | `50` | 最大返回数据行数 |
-| `--json` | - | `false` | 输出格式化 JSON |
-
-> ⚡ **DML/DDL 写入安全规则**：
-> 1. **顶层 WHERE 保护**：`UPDATE`/`DELETE` 必须明确包含顶层 `WHERE`；字符串、注释、反引号标识符、嵌套子查询中的伪 `WHERE` 不算，多语句或无法可靠分析的 SQL 默认阻断，需显式传入 `--force`；
-> 2. **结构化反馈**：DML 操作返回 `affectedRows`、`insertId`、`changedRows` 等结构化指标；DDL 返回执行结果，并在可识别时明确提示目标表名；
-> 3. **仅限测试环境**：本脚本仅连接测试/线下内网数据库，不可用于生产环境。
-
-> 💡 **测试库密码安全机制**：
-> 1. **零硬编码**：Skill 仓库内绝无任何明文密码；
-> 2. **智能目录引导**：若缺少密码，AI 主动引导用户切换至该项目的本地代码根目录（例如 `cd /Users/pa/project/JZ/utopia-scs-saas`），脚本将自动就地从 `application-test.yml` / `.env.test` 解析密码并直连；
-> 3. **验通即静默沉淀**：一旦握手测试成功，系统无感沉淀至 `~/.shrimp/skills/live-inspector/test_databases.json`，后续永久免输。
-
-
-## 🧠 3.5 Dinsight 自然语言大数据探查 (`scripts/dinsight_query.js`)
-AI 后台执行 `node scripts/dinsight_query.js "<自然语言问题>" [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `"<自然语言问题>"` | - | 必填 | 直接向 Dinsight Agent 提问，例如 `近7天北京成交量` |
-| `--set-token` | - | - | 保存用户复制的主 Token **或完整 Cookie 标头**（自动筛选 5 个可用 Key） |
-| `--set-csrf` | - | - | 仅当 CSRF 失败时，追加保存插件里的 **`csrf_token`** |
-| `--token` | - | - | 单次临时覆盖主 Token |
-| `--whoami` | - | `false` | 只验证登录态，不发起提问 |
-| `--json` | - | `false` | 输出 SSE 摘要与原始流 |
-
-> 🔑 **凭证自动获取**：在 Chrome 登录 Dinsight，并启用本 skill 随附的插件（升级后重新加载）。缺少凭据或明确鉴权失败时，脚本自动读取适用于 `api-dinsight.ke.com` 的 Cookie，并用 `--whoami` 对应接口验证后保存。
-> 只保留 `prd-assistant-token-prod`、`access_token`、`login_ucid`、`security_ticket`、`csrf_token`。浏览器未登录时先登录再重试；自动获取不可用时，可用插件复制 Cookie 标头并通过 `--set-token` 保存。不要回显 Cookie 值，HttpOnly Token 不能用 `document.cookie` 读取。
-
-> ⚠️ **查数执行注意**：
-> 1. Dinsight 是 SSE 长连接，CLI 超时必须 ≥ 180s。禁止用默认 10s HTTP 超时，否则流未结束就会被掐断；
-> 2. 必须保存并解析 **完整 SSE**。最终表格/SQL 结果在流末尾，截取前 2 万字符会只看到“正在查表”；
-> 3. 回答要从 `AIMessageChunk` 增量拼接，不要把 human 原问题或工具列表当成结论；
-> 4. ODS 表（如 `ods.ods_plat_iot_plat_open_door_record_ha`）可能未接入平台。若 schema 为空，应改查有权限的 DW 表（如 `dw.dw_plat_iot_plat_open_door_record_da`），并明确告诉用户口径差异：ODS 小时分区 vs DW 日分区 T+1；
-> 5. 门锁 `open_time` 可能出现 `2106-...` 脏时间。最新业务记录应同时看 `ctime`，或排除 `open_time >= 2100-01-01`；
-> 6. 并发查询不要写同一个结果文件。
-
-
-## 📡 4. Kafka 消息无损只读探查与安全模拟投递 (`scripts/kafka_query.js` & `scripts/kafka_send.js`)
-
-### 4.1 核心设计理念
-1. **以 Topic 为核心资产（扁平化）**：打破“必须先找微服务”的束缚，Topic 全局唯一，直接通过 Topic 名或中文别名即可秒级查询与发送；
-2. **双层持久化机制**：
-   - **内置预置**：[`resources/default_kafka.json`](resources/default_kafka.json)（出厂自带常用主目录 37+ 核心 Topic）；
-   - **本地自学习**：`~/.shrimp/skills/live-inspector/kafka_catalog.json`（支持 `--save` 随时沉淀新项目或自定义 Topic）；
-3. **零 Commit 与零 Rebalance 保障**：
-   - 探查严格采用随机临时 GroupId（`leo-peek-${Date.now()}`）与 `autoCommit: false`；
-   - 严禁任何提交行为，对线上/测试正常消费组完全透明；
-4. **测试环境安全投递与 Mock 上游**：
-   - 默认环境为 `test`，向 `prod` 写入会被强制拦截（必须附加 `--force-danger-confirm`）；
-   - 支持利用 Topic 预存的 `sample` 模板，通过 `-s key=val` 自动替换字段并刷新当前时间戳，实现秒级模拟上游事件；
-5. **多工具联动排障（闭环威力）**：
-   - 从 Kafka 查出的消息自带 `traceId` ➡️ 自动顺藤摸瓜调用 `fast_query.js --traceId` 追查下游消费端的执行日志与 Mermaid 时序交互图！
-
-### 4.2 常用命令速查
-
-| 操作场景 | 推荐命令 | 说明 |
-| :--- | :--- | :--- |
-| **查最新消息 (线上)** | `node scripts/kafka_query.js -t <topic> -n 3` | 默认查线上最新 3 条，格式化回显 JSON 消息 |
-| **查最新消息 (测试)** | `node scripts/kafka_query.js -t <topic> -e test -n 3` | 自动路由至测试环境对应集群与测试 Topic |
-| **查分区水位/保留消息量** | `node scripts/kafka_query.js -t <topic> --offsets-only` | 输出各分区的 Low / High 水位与消息总数看板 |
-| **查消费组真实积压** | `node scripts/kafka_query.js -t <topic> -g <groupId> --lag-only` | 输出 High / Committed / Lag、总积压与未提交分区数 |
-| **查生产/消费速率** | `node scripts/kafka_query.js -t <topic> -g <groupId> --rate --duration 20` | 两次只读快照差分输出速率、Lag 变化与预计追平时间 |
-| **按单号/关键词筛选** | `node scripts/kafka_query.js -t <topic> -q "<orderId>"` | 在拉取的消息中过滤指定业务关键词 |
-| **指定分区拉取** | `node scripts/kafka_query.js -t <topic> -p 0 -n 2` | 仅从指定分区拉取消息 |
-| **基于模板发送测试消息** | `node scripts/kafka_send.js -t <topic> --use-sample -s status=已完成` | 自动套用 Sample 模板并覆盖指定字段 |
-| **直接发送自定义 JSON** | `node scripts/kafka_send.js -t <topic> -d '{"orderId":"123"}'` | 投递到测试环境并回显 Partition 与 Offset |
-| **全量扫描更新资产** | `node scripts/kafka_scan.js -o resources/default_kafka.json` | 扫描 IOT/HT/ZK/JZ 目录并刷新内置预置库 |
-
----
-
-## 🚀 5. CI 构建与测试环境工作负载自动化部署 (`scripts/ci_deploy.js` & `scripts/feci_deploy.js`)
-
-### 5.1 后端微服务 CI/CD 自动化构建与部署 (`scripts/ci_deploy.js`)
-AI 后台执行 `node scripts/ci_deploy.js [serviceId] [options]`：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `[serviceId]` | `-s, --service` | 自动识别 | 目标微服务 ID 或别名 (如 `smart-customer-service`, `saas`, `algo`)，未提供时自动根据当前本地 Git 仓库或目录识别 |
-| `--branch` | `-b` | 自动识别 | 构建的代码分支，未提供时自动执行 `git rev-parse --abbrev-ref HEAD` 提取当前分支 (如 `master`, `main`, `feat/xxx`) |
-| `--build-only` | - | `false` | 仅触发 Shipwright CI 构建并轮询镜像出炉，不执行工作负载部署 |
-| `--deploy-only` | - | `false` | 仅执行测试环境工作负载镜像部署 (未显式指定 `--image` 时自动使用该微服务最近构建成功的镜像) |
-| `--image` | `-i` | `null` | 显式指定部署的目标镜像完整地址 (如 `hub.ke.com/smart-customer-service/...:tag`) |
-| `--list-images` | `-l` | `false` | 查询并列出该微服务历史构建成功的镜像列表、版本 Tag 与生成时间 |
-| `--dry-run` | - | `false` | 安全预检模式，仅解析并打印识别到的 CI 流水线、工作负载配置与分支信息，不发起实际写操作 |
-| `--timeout` | - | `15m` | 构建轮询最大超时时间 (支持 `10m`, `900s` 等) |
-| `--set-cookie` | - | - | 手动保存服务云 Cookie 至本地缓存 |
-| `--set-shipwright-cookie` | - | - | 手动保存 Shipwright 独立 Cookie |
-| `--json` | - | `false` | 输出纯 JSON 数据结果 |
-
----
-
-### 5.2 新人与未收录服务零配置自适应 (Auto-Discovery & Self-Learning)
-为确保新同学或新微服务无需手动改写配置文件即可无缝使用，底层引擎内置了两阶段动态发现与自愈闭环：
-
-1. **自动识别项目**：若未显式指定服务名，脚本自动读取本地 Git 仓库的 remote URL 或当前工程根目录名推导微服务 ID；
-2. **流水线与工作负载动态探测 (Auto-Discovery)**：
-   - 若服务未收录在内置清单中，脚本自动调用 Shipwright API（`POST /workflow-context/v1/workflows/query`）依据服务名与 `env: test` 匹配测试环境 CI 流水线 ID；
-   - 自动调用服务云 API（`GET /cloud-proxy-api/cloud-application/app/{serviceId}/virtual-services`）检索匹配环境为 `test` 的工作负载 ID；
-3. **静默自学习沉淀**：
-   - 探测验通后，自动将 `ciWorkflowId` 和 `testWorkloadId` 持久化写入 `~/.shrimp/skills/live-inspector/service_catalog.json`；
-   - 下次执行直接命中本地缓存，实现 **0 手动配置、0 维护成本、越用越聪明**。
-
-### 5.2.1 ⚠️ 构建器选择注意 (Builder Selection Pitfalls)
-
-> 📌 2026-10-28 实测踩坑沉淀（zulin-iot-platform 部署实战）：
-
-1. **已删除构建器残影**：Shipwright 的 `workflows/query` 列表**会返回已删除的构建器**（`app-svc_ke_com/deleted=1`），且残影可能排在列表前列。`ci_deploy.js` 的嗅探逻辑已内置过滤，但 AI 手动查询构建器列表时**必须核对 `deleted`/`cleared` 标签**，否则会选到废构建器（实测：`zulin-iot-platform----测试环境构建` 已删但排首位，名字与有效的 `zulin-iot-platform----测试构建` 仅差"环境"二字）；
-2. **同名/近名构建器辨识**：一个服务名下常有 20+ 个构建器（发二方包、公共库、手工传包通道等）。判断依据按优先级：`env` 标签 = `test` > 名称含"测试构建" > 其他。**api 二方包发布构建器（`iot-platform-api发包`）与服务部署构建器是两回事**，只有改动 api 模块对外契约时才需要前者；
-3. **`--build-only` 不需要工作负载**：仅构建模式下只校验构建器存在，测试工作负载可以缺失（部署前会提前退出）；完整流水线才要求两者齐备；
-4. **服务云查询走统一凭证通道**：查工作负载等云平台 API 必须用 `scripts/common/credentials.js` 的 `loadCloudCookie()`（读 `~/.shrimp/skills/live-inspector/cloud_token.json`），**不要手动拼接其他 cookie 文件**（如 `luke_cookie.json` 对 cloud.intra.ke.com 无效，会误判为"无权限"）；
-5. **构建挂到废构建器上仍可能"成功"**：已删除构建器上触发的构建记录仍会正常执行并产出镜像（实测 SUCCESS），但产物可信度存疑——发现选错构建器后应改用有效构建器重新构建，以有效构建器的产物为准。
-
----
-
-### 5.3 🛡️ 生产发布安全铁律 (Strict Test-Only & Production Advisor SOP)
-
-> 🚨 **【生产环境铁律：严禁自动化脚本直写生产容器】**
-> - 生产环境镜像部署直接影响线上真实业务，严禁任何 AI Agent 或自动化脚本绕过官方发布平台直接更新生产虚拟服务容器！
-> - **自动化构建部署能力绝对仅对测试环境 (`test`) 开放**。
-
-#### 生产变更参谋模式 (Advisor SOP)
-当用户提出“把这个分支/镜像部署到线上/生产环境”时，AI 自动触发发布参谋模式：
-1. **阻断直写**：底层脚本拦截任何目标为 `prod` / `online` 的部署指令；
-2. **生成《生产环境部署参谋单》**：
-   - 🎯 **应用信息**：微服务名称 (`serviceId`)；
-   - 🏷️ **推荐发布镜像**：展示经过测试验证的最新产物镜像 Tag（例如 `hub.ke.com/{app}:{timestamp}-{branch}-{hash}`）；
-   - 📝 **代码变更摘要**：关联的 Git Commit、分支名称、构建人与构建时间；
-3. **交付官方控制台直达链接**：
-   ```text
-   🔗 服务云生产工作负载控制台直达链接:
-   https://cloud.intra.ke.com/console/project/cloud/application/{serviceId}/virtual-service-list
-   ```
-4. **引导负责人审批发布**：指引业务负责人在服务云控制台选择该镜像，发起标准的生产发布与审批流程。
-
----
-
-### 5.4 🌐 前端微服务通用构建与服务云交付引擎 (`scripts/feci_deploy.js`) - FeCI / 青蝉 + 服务云交付中心
-
-全面支持贝壳全量前端微服务（IOT、JZ、ZK、HT 等所有技术栈）的自动化 FeCI 构建、服务云工作负载容器更新与 CDN 静态资源同步：
-
-| 参数/选项 | 简写 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `[appName\|jobId]` | - | 自动识别 | 目标前端项目名 (如 `smart-customer-service-fe`, `iot-platform-fe`) 或 FeCI 任务 ID (如 `1282`)，未提供时自动从本地 Git 仓库识别 |
-| `--branch` | `-b` | 自动提取 | 构建的代码分支，默认读取本地当前 Git 分支 (`master`, `feat/xxx`) |
-| `--env` | `-e` | `test` | 目标发布环境类型（默认: `test`，严格拦截生产环境 `prod` / `online`） |
-| `--deploy-only` | - | `false` | **纯部署模式**：跳过 FeCI 代码构建，直接选取最近构建产物下发服务云测试工作负载与 CDN 发布 |
-| `--ci-only` | - | `false` | **纯构建模式**：仅执行 FeCI 流水线构建与产物归档，不触发服务云工作负载部署 |
-| `--search` | `-s` | `null` | 搜索 FeCI 平台上的所有任务与流水线 (如 `-s "customer-service"`) |
-| `--list` | `-l` | `false` | 查看该任务最近的历史构建记录与触发人、耗时 |
-| `--dry-run` | - | `false` | 安全预检模式，仅打印任务名称、代码仓库、构建环境与分支，不触发实际构建与部署 |
-| `--set-cookie` | - | - | 保存更新 FeCI 平台 (`feci-next.ke.com`) 独立 Session Cookie 凭证 |
-| `--set-cloud-cookie` | - | - | 保存更新服务云平台 (`cloud.intra.ke.com`) 统一 Session Cookie 凭证 |
-
-#### 零硬编码与跨工程全流程闭环
-1. **自动感知**：任意前端工程根目录下执行 `node scripts/feci_deploy.js`，自动识别当前工程与 Git 分支；
-2. **动态嗅探**：通过 FeCI 官方 API（`GET /api/job/list`）动态匹配代码仓库与项目名推导流水线 Job ID；
-3. **构建联动交付**：构建成功后，自动直连服务云交付中心（`PUT /apis/cloud-application/app/:serviceId/virtual-service/delivery`），一键更新测试工作负载容器镜像并同步 CDN 静态资源；
-4. **本地自学习**：探测验通后自动持久化到 `~/.shrimp/skills/live-inspector/feci_catalog.json`，实现越用越快、全公司前端工程通用。
-
----
-
-## 📊 6. AI 交付呈现规范
+## 📊 AI 交付呈现规范
 
 1. **日志排查交付**：概况元信息 ➕ 结构化明细表格 ➕ 异常原因与堆栈分析；
 2. **TraceId 追溯交付**：**强制绘制清晰的 Mermaid 时序交互图**（展示 上游 -> 微服务 -> DB/Redis/下游）；
 3. **Apollo 配置交付**：标明配置中心来源、命名空间、配置 Key、格式化解析后的 JSON 结构，并解释业务含义；
 4. **CI 构建与测试部署交付**：汇报服务名称、构建分支、流水线 ID、轮询耗时、出炉镜像/产物地址，以及测试环境工作负载更新生效状态；
 5. **协同引导**：当发现数据异常或开关需要动态干预时，主动提示可唤起 `leo-live-runner` 进行免发版处理。
-6. **排查经验沉淀**：组织最终回复前，按[本地排查流程库](#本地排查流程库)独立评估复用价值，不以是否执行过前置检索为条件。有已验证的新方法或判断分支时先查重，在结论文末简短询问是否脱敏保存或更新到本地流程库；用户已明确授权则直接保存并回读。单次普通查询、仅有猜测、无新增内容、本次已拒绝或已询问待答时不再询问；未获保存授权不写入。
 
 ---
 
-## 🔌 7. 自动获取 Token/Cookie
+## 🔌 凭据自动获取与中继概览
 
-默认复用现有缓存；仅在凭据缺失或明确登录失败时，通过 `credential_relay` 从已登录浏览器自动获取一次。如果浏览器里没有对应 Cookie，或读到的 Cookie 仍被服务端拒绝，会在后台独立窗口打开目标网站一次，等加载稳定后重新读取并关闭窗口，这样可以续上已过期的登录态。如果跳到登录页或出现密码框，脚本报 `LOGIN_REQUIRED`，此时**提示用户在 Chrome 登录后重试，不要反复尝试**。新凭据经只读接口验证成功后才写缓存。普通 403、500、超时不会触发刷新；显式 `--token`、`--cookie` 或环境变量优先，不自动切换账号。构建、发布等写请求不会自动重放。
-
-### 安装与使用
-
-1. 在 Chrome 打开 `chrome://extensions/`，开启开发者模式，选择【加载已解压的扩展程序】。
-2. 选择当前 skill 下的 `resources/chrome_extension`。AI 应提供当前生效的绝对路径；macOS 可用 `Cmd + Shift + G` 输入路径，Windows 可在文件选择器地址栏输入。
-3. 已安装旧版时，将扩展更新到本目录的 **1.3.15** 或更高版本并点击【重新加载】。版本过旧时脚本会报 `EXTENSION_OUTDATED`，并提示重新加载。
-4. 在同一浏览器普通 Profile 登录目标网站，正常执行 skill 命令即可，无需复制或配对文件。
-
-需要凭据时，业务进程按需拉起本机 `127.0.0.1:19527` 的桥接，向扩展发送读取命令，通常很快返回；没有命令时不读 Cookie。桥接空闲 10 分钟后自动退出。默认最长等待 180 秒，等待期间打开 Chrome 也能继续。结果会在扩展内存的命令队列里保留最多 5 分钟，不落盘。超时请确认浏览器和扩展已开启、目标网站已登录，然后重试。
-
-### 平台范围
-
-| 场景 | 自动获取范围 |
-| --- | --- |
-| 服务云 MySQL | `cloud_console_token_egg` |
-| 服务云构建部署 | 适用于服务云请求 URL 的 Cookie |
-| Shipwright | 独立获取和缓存，不复用服务云整串 Cookie |
-| FeCI | 独立获取适用于 `feci-next.ke.com` 的 Cookie |
-| Apollo 测试 Portal | 适用于 Portal 的 Cookie（包括 `jt_apollo_login_token`） |
-| Luke 权限中心 (测试/线上) | 适用于 `luke.ke.com` / `test-luke.ke.com` 的鉴权 Cookie（包括 `luke-token`、`login_ucid` 等） |
-| UC 组织与角色中心 (测试环境) | 适用于 `test3-uc.admin.ke.com` 与 `test-uc-relation-admin.ke.com` 的 `.ke.com` 鉴权 Cookie（`sso_login_token`、`security_ticket_test`、`login_ucid` 等），缓存至 `test_uc_cookie.json` |
-| 灯塔 ARMS 前端监控 (`arms.fee.lianjia.com`) | 双轨鉴权：优先读取 `ARMS_API_KEY` 或 `~/.shrimp/skills/live-inspector/arms_api_key.json` (`x-api-key`)；未配置时自动中继 `arms.fee.lianjia.com` Cookie 并缓存至 `arms_cookie.json` |
-| Dinsight | 上述 5 个 Key，按实际认证 API URL 获取 |
-| Paoding 测试日志 | 匿名优先；明确鉴权失败后尝试缓存及浏览器 |
-| FAST / Apollo ConfigService | 直连 Kibana ES 检索及 Apollo ConfigService 免凭据；仅首次实时抓取未收录 FAST 服务索引时自动获取 `fast.ke.com` Cookie（缓存至 `fast_cookie.json`） |
-
-第一版仅支持浏览器 Cookie，包括 HttpOnly Cookie 和存于 Cookie 中的 Token；不读取 localStorage、sessionStorage 或请求头 Token。仅支持同机单个普通 Profile，不支持隐身、分区 Cookie 或远程浏览器。信任本机程序，无配对密钥；`19527` 被其他程序占用时返回 `RELAY_BUSY`，稍后重试。
-
-### 独立中继工具 (`scripts/credential_relay.js`)
-
-若需要单点排查、测试或显式同步某个站点的 Cookie，可直接运行 Skill 自带的原生中继工具（**严禁调用 opencli / ego-browser 等外部浏览器驱动工具**）：
-```bash
-# 验证并同步 Luke 线上权限中心凭据
-node scripts/credential_relay.js https://luke.ke.com
-
-# 验证并同步服务云凭据 (JSON 格式)
-node scripts/credential_relay.js https://cloud.intra.ke.com --json
-```
-
-### 手动兜底
-
-设置 `LEO_INSPECTOR_BROWSER_CREDENTIALS=off` 可关闭自动获取，保留已有缓存和手动设置参数。不能安装插件时，可在浏览器开发者工具 Application → Cookies 复制目标凭据，或使用插件导出 Cookie，再调用业务脚本的 `--set-token` / `--set-cookie`。Shipwright 使用 `ci_deploy.js --set-shipwright-cookie`。不要在回复、日志或代码中记录凭据值。
+- **内生中继机制**：默认复用本地 `~/.shrimp/skills/live-inspector/` 下的缓存凭据；仅在凭据缺失或明确鉴权失败时，通过 `127.0.0.1:19527` 本地桥接从已加载的 Chrome 扩展（**Leo cookie.txt Locally**，版本 ≥ 1.3.15）静默同步；
+- **平台支持范围**：服务云 (`cloud_token.json`)、Shipwright (`shipwright_cookie.json`)、FeCI (`feci_cookie.json`)、Apollo Portal (`test_apollo_cookie.json`)、Luke 权限 (`luke_cookie.json`)、UC 组织 (`test_uc_cookie.json`)、灯塔 ARMS (`arms_api_key.json` / `arms_cookie.json`)、ES 搜索云 (`search_cookie.json`)、白鸽网关 (`baige_cookie.json`)、Dinsight、FAST (`fast_cookie.json`)；
+- **独立中继工具**：可使用 `node scripts/credential_relay.js <targetUrl>` 单点测试与同步凭据（严禁调用任何外部自动化浏览器）。
 
 ---
 
-## 🌐 8. 通用浏览器操作与页面数据抓取
+## 📝 本地排查流程库与页面手册沉淀
 
-通过随附 CLI（`scripts/cli/index.mjs`，与 `leo-lantern` 核心引擎同源）直接操作用户真实的有界面 Chrome。除了页面测试、填表与排障外，具备完整的**通用页面数据抓取体系**：
-- **高保真 DOM 感知**：`state` / `snapshot` 获取带 `ref`、`generation`、`selector` 与 `rect` 的交互 DOM 树；`find` 精准定位。
-- **结构化数据抓取**：推荐将抓取脚本写成文件通过 `eval --file` 执行，返回规整 JSON，杜绝命令行引号转义和中文损坏。
-- **非侵入式网络嗅探（API 抓包）**：`net-start` $\rightarrow$ 触发页面操作 $\rightarrow$ `net-get --grep "api"` $\rightarrow$ `net-stop`，直接抓取后端原始 XHR/fetch 报文。
-- **长文本与长截图**：`content --max-chars 4000` 抽取脱壳文本；`screenshot --full-page` / `--sel` 截取整页长图或局部组件。
-- **流式/动态页面静止等待**：`wait --idle --idle-ms 2000`，等待流式 AI 内容或异步渲染完全稳定。
-- **登录凭证中继与离线导出**：`cookies --url <URL> --open-if-missing --out <文件>` 自动在后台打开并提取 Netscape/JSON 凭据。
-- **复杂前端避坑战术**：完整支持 AntD/Element UI 下拉穿透、Shadow DOM 穿透、遮罩拦截自愈、受控组件 `--blur` 校验与 CDP 原生物理输入。
-
-详细参数、四大抓取范式与 12 大复杂交互避坑指南见 [通用浏览器操作与页面抓取手册](references/browser-guide.md)。
-
-```bash
-# 查看页面 DOM 状态与元素 Ref
-node <skillDir>/scripts/cli/index.mjs state
-
-# 执行结构化抽取脚本并落盘
-node <skillDir>/scripts/cli/index.mjs eval --file "/tmp/extract.js" > "/tmp/result.json"
-
-# 截取整页长图
-node <skillDir>/scripts/cli/index.mjs screenshot --full-page --out full.png
-
-# 启动网络抓包嗅探 API 响应
-node <skillDir>/scripts/cli/index.mjs net-start
-# (页面操作或等待...)
-node <skillDir>/scripts/cli/index.mjs net-get --grep "api"
-node <skillDir>/scripts/cli/index.mjs net-stop
-```
-
-### 8.1 页面操作流程沉淀与复用
-
-对网页做的任何操作（测试、抓数据、填表、导出、截图等），都可以按页面沉淀成**页面手册**：一个页面一份，记录地址、稳定的元素定位、已知坑，以及多个可整段执行的操作流程。下次同一页面的同类任务直接执行流程，不再从头摸索。读取 [页面操作流程手册](references/page-flow-guide.md) 后执行。
-
-- **操作前先检索**：`node scripts/knowledge.js search '<域名> <路径关键段>' --kind page`，命中后 `show <id> --kind page`，找到对应流程后把命令块整段放进一次 Bash 调用执行；某一步失败再退回正常操作，修正后继续。
-- **操作后沉淀**：本次有摸索过程且任务完成时，询问一次是否保存或补进手册；复用时修正过步骤的，提议更新。确认后 `save --kind page`，规则同本地排查流程库。
-
-> 🚨 **【线上写操作红线：网页操作不能绕过风控】**
-> - **线上一律只读**：严禁用 `click`、`fill`、`press`、`upload`、`eval` 在线上 Apollo Portal、线上 Luke、服务云及任何生产发布平台页面提交修改、发布、删除或部署。线上变更仍走参谋模式，由负责人亲自操作。
-> - **测试环境同样不能绕过确认**：Apollo、Luke 的修改必须走业务脚本的两阶段流程，不得用网页操作代替 `--confirm`。
-> - **这是行为规则，代码不会拦截**：执行前先核对当前页面的域名和环境，无法确认环境时按线上处理。
-> - **Cookie 不回显**：业务脚本会自动获取凭据，不需要手动导出。确实需要时用 `cookies --url <URL> --out <文件>` 写入文件，不得把 Cookie 值输出到回复或日志。同样不得用 `eval` 读取并回显 Cookie、Token。
+- **排查前检索**：对问题诊断先提取关键词，后台执行 `node scripts/knowledge.js search '<关键词>'`（页面任务传 `--kind page`）；匹配后用 `show <id>` 读取并复用已验证路径；
+- **主动询问沉淀**：任务完成后，若形成可复用且已验证的新方法或判断分支，在结论文末简短询问是否保存；
+- **脱敏持久化**：用户明确同意后，参数化并脱敏保存至 `~/.shrimp/skills/live-inspector/knowledge/`，每份流程独立 Markdown，永久本地持久化。详见 [本地流程库手册](references/local-knowledge-guide.md) 与 [页面操作流程手册](references/page-flow-guide.md)。
 
 ---
 
-## 🛡️ Luke 权限中心双环境治理 (Luke Permission Governance)
+## ☕ 互动彩蛋：随缘投喂（受限触发）
 
-本模块专为各大业务微服务（如 `iot_auth` 网关及业务子域）提供 **RBAC 鉴权与上下文约束自动化治理能力**。支持**双环境切换**：
-* 🧪 **测试环境**：`https://test-luke.ke.com`（默认，参数 `-e test`）
-* 🔴 **线上生产环境**：`https://luke.ke.com`（参数 `-e prod`）
-
-覆盖约束管理 (Ext)、权限点管理 (Perm)、角色管理 (Role) 与人员授权 (Users)。
-
-### 1. 严格的两阶段风控原则与线上/删除高危拦截机制
-
-为防止意外篡改权限体系、影响线上生产业务或引发级联鉴权故障，变更引擎执行严格的**两阶段风控闭环与高危操作阻断**：
-
-```
-                    ┌─────────────────────────────────────────┐
-                    │ 用户提出权限配置/修改/删除需求           │
-                    │ (测试环境 -e test 或 线上生产 -e prod)   │
-                    └────────────────────┬────────────────────┘
-                                         │
-                                         ▼
-                    ┌─────────────────────────────────────────┐
-                    │ 阶段 1: AI 后台 Pre-flight 静态推演     │
-                    │ 探查当前线上/测试现状，计算精确 Diff     │
-                    │ 自动遍历级联影响的角色与受影响人员名单   │
-                    └────────────────────┬────────────────────┘
-                                         │
-                                         ▼
-                    ┌─────────────────────────────────────────┐
-                    │ 交付《高危操作/变更预审 Diff 报告》      │
-                    │ 🛑 强制停下，主动向用户汇报并等待明确确认│
-                    └────────────────────┬────────────────────┘
-                                         │
-                              用户明确输入 "确认" / "执行"
-                                         │
-                                         ▼
-                    ┌─────────────────────────────────────────┐
-                    │ 阶段 2: 带 --confirm 提交正式写接口     │
-                    │ 正式写入并立即发起回读校验               │
-                    └─────────────────────────────────────────┘
-```
-
-#### 🚨 触发高危预警与强制用户确认的场景：
-1. **线上生产环境的一切修改与操作 (`-e prod`)**：线上任何角色赋权、接口增删均直接影响真实员工与业务可用性，必须展示 Diff 并经用户明确确认。
-2. **任何环境下的删除/缩减操作**：
-   - 🔴 **删除角色** (`delete-role`)：直接影响该角色名下所有绑定的员工；
-   - 🔴 **删除权限点** (`delete-perm`)：级联影响所有包含此权限点的角色与相关人员；
-   - 🔴 **从权限点剔除接口/服务** (`update-perm --remove-api / --remove-service`)：会导致依赖该 API 的角色鉴权失败 (403)；
-   - 🔴 **从角色收回权限点或剔除接口** (`revoke-role-perm` / `grant-role-perm --remove-api`)；
-   - 🔴 **解绑人员** (`unbind-role-user`)。
-
-> ⚠️ **【高危铁律：绝对禁止未确认直写】**
-> 当遇到上述场景时，变更引擎会自动输出 `🚨🚨🚨【高危操作预审报告 (HIGH RISK DELETION)】🚨🚨🚨` 警示横幅与级联影响清单。
-> **AI 绝对禁止在未获得用户明确文字确认前擅自加上 `--confirm` 执行写入！** 必须向用户呈现完整报告并等待用户说“确认修改”或“确认删除”后才执行。
+当用户在排障、查配置或任务处理完毕后，发送**纯夸奖、致谢或表达拯救了发际线的情绪词**（如：“好用”、“牛逼”、“太强了”、“救大命”、“神了”、“吹爆”）时触发本彩蛋：
+1. **回复风格**：幽默自嘲、程序员温度，保持简短克制（1~2 句话），严禁长篇大论；
+2. **路径自适应输出**：获取当前运行环境下本 skill 的 `resources/donate_qr.jpg` 绝对路径（优先检测当前执行目录下的 `resources/donate_qr.jpg` 或 `$HOME/.agents/skills/leo-live-inspector/resources/donate_qr.jpg`），输出为标准本地 Markdown 链接：
+   `[【请作者喝口冰美式 ☕】](file:///绝对路径/donate_qr.jpg)`
+   并在后方附带操作提示：`*(Mac 终端下按住 Cmd+点击即可直接调起系统预览查看)*`；
+3. **红线与频控**：
+   - 如果用户输入包含任何技术问题、疑问、错误反馈或后续操作意图，**绝对不触发**；
+   - 单个会话中**最多触发 1 次**，绝不重复刷屏引起反感。
 
 ---
 
-### 2. 常用操作命令速查 (双环境 `-e test` / `-e prod`)
-
-#### (1) 只读探查 (`scripts/luke_query.js`)
-```bash
-# 查询约束列表或指定约束的枚举值 (默认 test)
-node scripts/luke_query.js ext
-node scripts/luke_query.js ext serviceId
-
-# 查询线上生产环境中的约束
-node scripts/luke_query.js ext serviceId -e prod
-
-# 查询权限点详情与绑定的接口
-node scripts/luke_query.js perm anjia:storage:order:afterSaleOrder
-node scripts/luke_query.js perm anjia:storage:order:afterSaleOrder -e prod
-
-# 查询角色详情与权限树
-node scripts/luke_query.js role admin
-node scripts/luke_query.js role -q 看板管理员 -e prod
-
-# 查询角色名下绑定的真实员工列表
-node scripts/luke_query.js users admin
-node scripts/luke_query.js users admin -e prod
-
-# 👤 查询员工名下生效的角色与权限点全景画像 (支持工号或姓名)
-node scripts/luke_query.js user 张林
-node scripts/luke_query.js user 1000000030560224 -e prod
-
-# 👥 对比两人之间的权限差异 (三层递进: 角色 -> 权限点 -> 数据约束)
-node scripts/luke_query.js diff-user 张林 李四
-node scripts/luke_query.js diff-user 1000000030560224 1000000012345678 -e prod --json
-```
-
-#### (2) 变更引擎 (`scripts/luke_modify.js`)
-
-```bash
-# ------------------------------
-# 1. 权限点接口维护 (增/删 API)
-# ------------------------------
-# 为权限点追加新 API (默认 Pre-flight 试运行)
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder --api "/anjia/afterSale/newApi"
-# 用户确认后正式执行
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder --confirm --api "/anjia/afterSale/newApi"
-
-# 🔴 高危：从权限点中剔除某个接口 (自动触发高危预警与影响面分析，严禁未确认直写)
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder --remove-api "/anjia/afterSale/oldApi"
-# 用户明确确认后带 --confirm 执行
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder --confirm --remove-api "/anjia/afterSale/oldApi"
-
-# 🔴 线上生产环境操作 (带 -e prod，先 Pre-flight 确认后再执行)
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder -e prod --api "/anjia/afterSale/newApi"
-node scripts/luke_modify.js update-perm anjia:storage:order:afterSaleOrder -e prod --confirm --api "/anjia/afterSale/newApi"
-
-# ------------------------------
-# 2. 角色维护与授权
-# ------------------------------
-# 新建角色
-node scripts/luke_modify.js create-role warehouse-op 仓储运维专员 --desc "日常仓储管理"
-
-# 🔴 高危：删除角色 (自动排查关联员工，需确认)
-node scripts/luke_modify.js delete-role warehouse-op
-node scripts/luke_modify.js delete-role warehouse-op --confirm
-
-# 为角色授权并限定约束值 (展示 Diff 与受影响员工)
-node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --api "/anjia/custom/api"
-node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --confirm --api "/anjia/custom/api"
-
-# 🔴 高危：从角色中剥离某个 API
-node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --remove-api "/anjia/custom/api"
-node scripts/luke_modify.js grant-role-perm anjiah5:inventoryAdmin anjia:storage:order:afterSaleOrder --confirm --remove-api "/anjia/custom/api"
-
-# ------------------------------
-# 3. 人员绑定与解绑
-# ------------------------------
-# 绑定人员到角色
-node scripts/luke_modify.js bind-role-user anjiah5:inventoryAdmin 1000000030560224
-# 🔴 高危：从角色中解绑人员
-node scripts/luke_modify.js unbind-role-user anjiah5:inventoryAdmin 1000000030560224
-node scripts/luke_modify.js unbind-role-user anjiah5:inventoryAdmin 1000000030560224 --confirm
-```
-
----
-
-#### 👤 员工权限全景画像与双人三层深度 Diff (User & Diff-User)
-
-在日常权限排障与线上问题核实中，“为什么张三能访问而李四报 403”、“某员工到底拥有哪些实际生效的角色与数据范围”是最常见的排障诉求。本功能通过并发分页与内存反查索引，提供极速的单人全景画像与双人深度对比能力。
-
-##### 1. CLI 命令与参数选项
-
-```bash
-# 1. 员工单人权限全景画像 (User Profile)
-node scripts/luke_query.js user <ucid|name> [--app <appCode>] [-e test|prod] [--json]
-
-# 2. 双人权限三层深度 Diff (User Diff)
-node scripts/luke_query.js diff-user <user1> <user2> [--app <appCode>] [-e test|prod] [--json]
-```
-
-* `<ucid|name>`: 支持输入员工工号（如 `1000000030560224`）或姓名（如 `张林`）；遇到同名员工时自动激活**消歧保护机制**，列出所有同名候选人工号与所属角色供进一步精准查询；
-* `--app <appCode>`: 显式指定目标应用系统（默认为 `DEFAULT_APP_ID` 即 `iot_auth`）；
-* `-e / --env <test|prod>`: 环境切换（默认 `test` 测试环境 `test-luke.ke.com`，支持 `-e prod` 线上生产环境 `luke.ke.com`）；
-* `--json`: 输出纯净机器可读结构化 JSON，供上层测试框架或自动化编排消费。
-
-##### 2. 单人画像聚合与多角色约束并集自动合并
-- **全量角色自动扫描**: 后台自动遍历目标应用系统名下的全部角色，并发分页抓取角色绑定的员工列表，在内存中构建实时反查索引（`UserMemoryIndex`）；
-- **生命周期状态过滤**: 严格校验角色有效期 (`expireDate`)、用户绑定有效期 (`userBindingExpireDate`) 与启用状态 (`active`)，自动过滤已过期或被禁用的无效角色；
-- **多角色权限点与约束自动取并集**: 当员工通过多个不同角色获得同一个权限点时，引擎自动对挂载的各类数据约束取并集（如角色 A 赋予 `cityCode: [110000]`，角色 B 赋予 `cityCode: [310000]`，画像将自动合并生效范围为 `[110000, 310000]`）；
-- **完整资产直达输出**: 直接输出角色标识 (`roleId`)、角色名称、权限点标识 (`permId`)、权限点名称、生效数据约束（含关联接口路径 `apiUrl`、微服务 `serviceId`、城市范围 `cityCode` 等）、来源角色，以及 **Luke 控制台 Web 直达链接 (`portalUrl`)**。
-
-##### 3. 双人权限三层渐进式深度 Diff 机制
-当对比员工 A 与员工 B 的权限差异时，系统自顶向下进行三层逐级下探分析：
-* **Tier 1: 角色层差异 (Roles Diff)**
-  - 标记 `[A独有]`、`[B独有]`、`[共有]` 角色；
-  - 附带角色 Code、角色名称及 Luke 控制台直达链接；
-* **Tier 2: 权限点层差异 (Permissions Diff)**
-  - 标记 `[A独有]`、`[B独有]`、`[共有]` 权限点；
-  - 标明该权限点来源于哪个具体角色，直观揭示因角色缺失带来的权限断层；
-* **Tier 3: 数据约束深度下探 (Constraint Scope Diff)**
-  - 针对两人共有的权限点，深度逐字段比对生效约束取值集合（如城市代码 `cityCode`、API 路径 `apiUrl`、微服务标识 `serviceId` 等取值差集）；
-  - 精准计算单方独有约束值集合（`onlyInA` vs `onlyInB`），并在终端仅展示存在差异的约束行，屏蔽无差异噪点；
-  - 若两人权限全景画像 100% 完全一致，直接输出庆贺横幅 `🎉 两人名下在当前系统的生效权限与数据范围 100% 完全一致！`。
-
-##### 4. 核心字段与控制台 Web 直达链接
-为方便技术人员与业务负责人核验，所有输出均完整呈现以下五大核心要素：
-1. **角色 Code (`roleId`)**: 系统级唯一角色标识（如 `anjiah5:inventoryAdmin`）；
-2. **权限 Code (`permId`)**: 接口/操作唯一权限点标识（如 `anjia:lock:infoView`）；
-3. **约束 Code (`extId`)**: 维度唯一标识（如 `cityCode`、`apiUrl`、`serviceId`）；
-4. **关联接口路径 (`apiUrl`)**: 真实后端受控 API 路径（如 `/api/v1/locks/info`）；
-5. **Luke 控制台 Web 直达 URL (`portalUrl`)**: 自动拼装包含环境前缀与目标 Tab 的官方控制台链接（如 `https://luke.ke.com/#/app/iot_auth/role`），可直接在浏览器一键打开。
-
----
-
-### 📢 AI 交互与自然语言交付规范 (AI Delivery Standard)
-
-在为最终用户提供权限诊断、查权与授权对比服务时，AI **必须严格遵守以下自然语言交付铁律**：
-
-1. **🚫 严禁直接向最终用户倾倒 CLI 原始 JSON / 冗长终端输出**：
-   - CLI 返回的结构化 JSON 仅供 AI 后台精准推理和提取事实证据；
-   - 对外交付时必须转化为结构清晰、重点突出的 Markdown 概览结论与表格，严禁大段贴出未经提炼的 JSON 字符串。
-2. **🎯 核心结论先行 (Conclusion First)**：
-   - 回复的第一句话必须直奔主题，给出定性排障结论。例如：
-     > “**张林相比李四，缺少角色【安家H5-库存管理员 (`anjiah5:inventoryAdmin`)】，导致缺少权限点【门锁删除 (`anjia:lock:delete`)】；在共有权限【门锁查看】下，缺少城市代码 `310000 (上海)` 的数据权限。**”
-3. **🔗 完整列出 Code 与 Luke 控制台直达 URL**：
-   - 提及角色时必须列出完整角色 Code（如 `anjiah5:inventoryAdmin`）；
-   - 提及权限点时必须列出完整权限 Code（如 `anjia:lock:infoView`）；
-   - 提及约束时必须列出约束 Code 与具体取值差集（如 `apiUrl: [/api/v1/locks/delete]`）；
-   - 必须在报告中附带 Luke Portal Web 直达链接，方便用户或管理员一键点击跳转至 Luke 控制台进行审核、申请或分配。
-4. **🛠️ 给出明确、可落地的排障与修复指引**：
-   - **缺失角色时**：明确告知缺少哪个角色 Code，并指引用户前往 Luke 申请该角色，或提供管理员绑定命令：`node scripts/luke_modify.js bind-role-user <roleId> <ucid>`；
-   - **角色具备但缺少数据约束时**：明确指出缺失的城市代码或接口范围，指引在角色授权配置中通过 `grant-role-perm` 扩充对应约束取值；
-   - **针对 403 接口鉴权拦截排查**：直接反查报错接口 URL 是否挂载在对应权限点下，明确指出是角色未绑定、接口未加权限点、还是限定约束（如 cityCode）未包含当前操作上下文。
-
----
-
-## 🔎 10. ES 搜索云平台探查与测试环境安全 CRUD (scripts/es_query.js & scripts/es_modify.js)
-
-参考服务云 MySQL 自助查数架构，直接对接**贝壳搜索云平台 (`search.ke.com`)**，彻底脱离本地项目代码目录与微服务名依赖，提供索引资产自动发现、精准字段结构与语义解析、双环境数据检索与测试环境安全 CRUD。
-
-### 10.1 核心设计与云平台直连机制
-使用者调用时**无需提供微服务 `appId`、无需处于项目代码目录下、也无需手动配置网关与 Token**：
-1. **自动登录态中继与缓存**：通过 `createCredentialSession`（`scripts/common/browser_credentials.js`）自动从随附 Chrome 扩展获取 `search.ke.com` Cookie，验证通过后持久化至 `~/.shrimp/skills/live-inspector/search_cookie.json`（也支持 `--set-cookie` 或 `SEARCH_COOKIE` 环境变量）；
-2. **个人授权索引目录 (`es_catalog.json`)**：调用 `search.ke.com/ajax/createApp/getAppList` 拉取当前工号已授权的全部 ES 索引（含 `serviceId`、名称、业务描述、接入方式），缓存至 `~/.shrimp/skills/live-inspector/es_catalog.json`（24 小时有效，可 `--refresh` 强制刷新）；
-3. **双环境配置动态解析 & 双网关协议适配**：
-   - **线上环境 (`-e prod`)**：读取 `detailSearchQA/getVersionList` 与 `getConfig`，提取线上查询网关、Token、精确 `mapping`、`routingField` 及 `binlogSource`；
-   - **测试环境 (`-e test`)**：自动依次尝试 `detailBusinessQA` 与 `detailBusinessRD`（可通过 `--role qa|rd` 指定优先级），支持 `pull`/`push` 与 ES8 原生 DSL 网关 (`/search/es`)。
-
-### 10.2 字段理解与纯正则生产安全铁律
-- **字段结构与含义解答**：执行 `--schema` 时，脚本会合并展示 `search.ke.com` 官方 `mapping`（字段类型、是否可检索、`nested` 子字段、`dense_vector` 向量维度与模型）、`routingField` 路由键、上游 `binlogSource`（库/表/业务主键）以及实时样本值；AI 应结合这些信息为用户清晰解释每个字段的业务含义与可检索方式。
-- **纯规则判决 (`TEST_PATTERNS`)**：严格依靠测试环境语义正则（涵盖 `.test.ke.com`、`-test.`、`sit`、`qa`、`dev` 等）；
-- **疑罪从严，生产物理死锁**：任何未匹配到 `TEST_PATTERNS` 的 URL 或指定 `-e prod` 的请求，**一律判定为生产环境，底层代码彻底阻断新增/修改/删除等写操作**；
-- **测试环境两阶段预审**：测试环境修改强制要求 Pre-flight 试运行（打印变更前现有值 vs 拟写入新值 Diff 对比单），用户明确确认或追加 `--confirm` 后方可正式写入。
-
-### 10.3 常用 CLI 命令速查
-
-#### 1. 索引目录发现与字段语义探查
-```bash
-# 列出当前工号已授权的所有 ES 索引 (支持 --refresh 强制同步)
-node scripts/es_query.js --list-indexes
-
-# 查看精准 Mapping 字段、上游数据源、路由键与真实样本值
-node scripts/es_query.js 1036710001 --schema -e prod
-node scripts/es_query.js 订单 --schema -e prod
-node scripts/es_query.js 智能客服 --schema -e test
-```
-
-#### 2. 多维度数据检索
-```bash
-# 按 serviceId 或索引名关键词查询最新 10 条线上数据
-node scripts/es_query.js 1036710001 -n 10 -e prod
-node scripts/es_query.js 门锁 -n 10 -e prod
-
-# 测试环境数据检索 (自动匹配 BusinessQA / BusinessRD)
-node scripts/es_query.js 智能客服 -n 5 -e test
-
-# 带关键词、键值对过滤或自定义 DSL 查询
-node scripts/es_query.js 门锁 -q "合肥" --filter "cityCode:340100" -n 5
-node scripts/es_query.js 1013506001 -e test --dsl '{"query":{"term":{"cityCode":"110000"}}}'
-```
-
-#### 3. 测试环境数据 CRUD (两阶段确认)
-```bash
-# 阶段 1: 更新部分字段 (Dry-Run 预审模式，展示 Diff)
-node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"battery": 95}' -e test
-
-# 阶段 2: 确认无误后正式提交写入并自动回查验证
-node scripts/es_modify.js 门锁 --action update-part --id "10001" --data '{"battery": 95}' -e test --confirm
-
-# 测试环境删除文档
-node scripts/es_modify.js 门锁 --action delete --id "10001" -e test --confirm
-```
-
----
-
-## 🕊️ 11. 白鸽网关三环境探查与治理 (scripts/baige_query.js & scripts/baige_modify.js)
-
-支持**测试环境**（`http://life-fe-baige-node.offline-beta.ttb.test.ke.com`，`-e test`）、**预发环境**（`http://preview.baige.ke.com`，`-e preview`）与**线上生产环境**（`https://baige.ke.com`，`-e prod`）三轨体系的微服务网关登记、路由组、子路由规则以及服务授权管理员探查与治理。
-
-### 11.1 核心特性与架构机制
-1. **纯 HTTP REST 极速直连**：针对测试/预发/生产三环境自动选择通讯协议（`http:` / `https:`）与端口，免除繁琐网络开销；
-2. **多环境登录态自动中继与持久化**：支持从随附 Chrome 扩展自动中继获取凭据，并分别落盘至 `~/.shrimp/skills/live-inspector/` 下的 `test_baige_cookie.json`、`prev_baige_cookie.json` 与 `baige_cookie.json`；
-3. **跨环境三态对照 (`check <serviceId>`)**：并发探查测试、预发与生产三环境的服务登记状态、应用 ID、Eureka 转发目标、路由组总数与当前用户管理权限，直接输出直观对照看板与官方 Web 直达链接；
-4. **严格生产与预发只读物理死锁**：**预发环境 (preview) 与生产环境 (prod) 严格禁止执行任何写操作与路由变更**，代码级物理阻断！所有网关配置与路由修改仅允许在测试环境 (`-e test`) 中进行；测试环境同样坚守两阶段风控原则，默认 Pre-flight 试运行计算 Diff，严格要求用户明确确认后再带 `--confirm` 提交。
-
-### 11.2 常用 CLI 命令速查
-
-#### 1. 路由与网关只读探查 (`scripts/baige_query.js`)
-```bash
-# 查询已登记微服务列表 (默认 prod 生产环境，支持 -e test / preview)
-node scripts/baige_query.js apps
-node scripts/baige_query.js apps -q algo -e test
-node scripts/baige_query.js apps -q algo -e preview
-
-# 查看指定微服务的网关登记详情 (支持 serviceId 或纯数字应用 ID)
-node scripts/baige_query.js detail utopia-scs-algo
-node scripts/baige_query.js detail 144 -e prod
-node scripts/baige_query.js detail utopia-scs-algo -e test
-
-# 🛣️ 深度探查服务的网关路由信息 (路由组层级树、前缀、登录校验状态、下属子路由 URI 规则与所属泳道)
-node scripts/baige_query.js routes utopia-scs-algo              # 查线上生产环境路由
-node scripts/baige_query.js routes utopia-scs-algo -e preview   # 查预发环境路由
-node scripts/baige_query.js routes utopia-scs-algo -e test      # 查测试环境路由
-node scripts/baige_query.js routes utopia-scs-algo --json       # 导出结构化路由 JSON 供排障比对
-
-# 查看服务的已授权管理员列表与当前账号权限状态
-node scripts/baige_query.js users utopia-scs-algo
-
-# 🔥 跨环境三态对照：并发检查服务在测试、预发与生产的登记、转发与路由状态
-node scripts/baige_query.js check utopia-scs-algo
-```
-
-#### 2. 测试环境变更引擎与风控 (仅限 -e test，预发/线上物理阻断)
-```bash
-# 预发与线上生产环境执行写操作会被物理阻断：
-# node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e prod -> 🚨 自动拦截
-
-# 测试环境添加管理员 (阶段 1: Pre-flight 试运行)
-node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test
-# 用户确认后正式提交 (阶段 2: 带 --confirm)
-node scripts/baige_modify.js add-user utopia-scs-algo 30560224 -e test --confirm
-
-# 🔴 高危操作：移除服务管理员 (需用户二次确认)
-node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test
-node scripts/baige_modify.js delete-user utopia-scs-algo 30560224 -e test --confirm
-
-# 修改测试环境服务域名配置
-node scripts/baige_modify.js update-domain 6836 api.algo.ke.com,algo.ke.com -e test --confirm
-```
-
----
-
-## 🏢 12. UC 组织与人员角色管理中心探查与测试环境角色治理 (`scripts/uc_query.js` & `scripts/uc_modify.js`)
-
-支持**测试环境**（`http://test3-uc.admin.ke.com` GraphQL/本域 REST + `http://test-uc-relation-admin.ke.com` 关系与角色 REST，默认 `-e test`）的全量人员、组织、城市公司、业务角色、关系配置（人-人、人-组织、组织-组织）、组织标签及 BPM 角色申请流探查，以及测试环境人员角色的两阶段安全修改。
-
-### 12.1 核心特性与架构机制
-1. **双引擎无缝聚合**：
-   - `test3-uc.admin.ke.com/graphql`：负责人员分页/详情 (`getEhrUserVOByPage`, `getEhrUserVO`)、调转记录 (`getEhrUserEventQueueListByUcid`)、组织分页/详情/异动 (`getEhrOrgBasicVOByPage`, `getEhrOrgVO`, `getEhrOrgEventQueueListByOrgCode`)、组织树 (`getDisplayOrg`, `getChildNodes`, `getTreeNodeWithParentTreePath`)、城市公司 (`getCompVOForPage`, `getAllUcCity`) 与五大远程 Sug 联想；
-   - `test-uc-relation-admin.ke.com`：负责人员绑定角色与管辖范围 (`/relation/queryAllUserRoleByUserCode`, `/userRole/queryRoleForUser`, `/userRole/queryUserRolePage`)、角色定义 (`/role/queryRolePage`)、角色层级树 (`/user/org/relation/queryRoleTree`)、以及人-人 (`/user/user/relation/*`)、人-组织 (`/user/org/relation/*`)、组织-组织 (`/org/org/relation/*`) 关系配置。
-2. **智能标识解析与中文自动转码**：
-   - 查人时支持传 **16 位 UCID** (`1000000030560224`)、**8 位系统号 `userCode`** (`30560224`) 或 **姓名** (`张林`)，重名自动触发消歧列表；
-   - 筛选时支持直接传中文城市名（`--city 北京` ➡️ 自动转 `110000`）、中文业务角色名（`--role 商圈经理` ➡️ 自动转 `765`）、中文组织名（`--org 运营管理` ➡️ 自动转 `XFTJ8001`）。
-3. **测试环境角色修改两阶段风控 (Zero Silent Mutation)**：
-   - 任何角色新增 (`add-pos`)、修改 (`mod-pos`)、删除 (`del-pos`)、关系角色绑定/解绑 (`bind-role` / `unbind-role`)、组织业务模式修改 (`update-biz-mode`) **严禁直接带 `--confirm` 一步写入**；
-   - **阶段 1 (Pre-flight Dry-Run)**：不带 `--confirm` 运行，展示目标员工现有角色与【变更前 vs 变更后】Diff 预审单（删除/解绑触发 `🚨🚨🚨【高危操作预审报告】`），**必须停下等待用户明确确认**；
-   - **阶段 2 (Commit & Verify)**：用户明确回复“确认”后，追加 `--confirm` 执行提交并自动回查校验最新生效状态。
-
-### 12.2 常用 CLI 命令速查
-
-#### 1. 全量只读探查 (`scripts/uc_query.js`)
-```bash
-# 查看当前登录的 UC 管理员账号、管理员角色与权限范围
-node scripts/uc_query.js whoami
-
-# 👤 员工 UC 全景画像 (支持 16位UCID / 8位系统号 / 姓名)
-node scripts/uc_query.js user 30560224
-node scripts/uc_query.js user 马楠
-
-# 🔍 多维检索人员 / 找测试账号 (支持中文城市、角色、组织名自动转码)
-node scripts/uc_query.js users --city 北京 --role 商圈经理 --status 在职 -n 10
-node scripts/uc_query.js users --org XFTJ8001 --record 主岗
-
-# 🎭 查询某员工名下所有角色明细 (UC岗位角色 + 关系中心角色及管辖门店/人员)
-node scripts/uc_query.js roles 30560224
-
-# 👥 按业务角色反查绑定人员列表 (关系维护表 + EHR岗位表双视图)
-node scripts/uc_query.js role-users 商圈经理 --city 北京
-
-# 📋 查询业务角色定义与映射的 UC 岗位 / 角色层级架构树
-node scripts/uc_query.js role-defs 商圈经理
-node scripts/uc_query.js role-tree 20192015
-
-# 🏛️ 组织全景详情 / 组织多维分页检索 / 业务组织树
-node scripts/uc_query.js org XFTJ8001
-node scripts/uc_query.js orgs --city 天津 --status 1
-node scripts/uc_query.js org-tree
-node scripts/uc_query.js org-tree XFTJ7001
-
-# 📜 人员人事调转记录 / 组织历史异动记录
-node scripts/uc_query.js events 10138597
-node scripts/uc_query.js events XFTJ8001
-
-# 🏙️ 城市公司分页查询 & 全量城市编码表
-node scripts/uc_query.js companies --city 北京
-node scripts/uc_query.js cities
-
-# 🤝 三大关系配置查询 (人-人 p2p / 人-组织 user-org / 组织-组织 org-org / 操作日志 rel-logs)
-node scripts/uc_query.js p2p --role Community_Manager --city 北京
-node scripts/uc_query.js user-org --role CA --city 北京
-node scripts/uc_query.js org-org 200111 --city 北京
-node scripts/uc_query.js rel-logs --role CA --city 北京
-
-# 🏷️ 组织标签字典与实例 / 📨 BPM 角色申请记录 / 💡 通用 Sug 联想
-node scripts/uc_query.js tags
-node scripts/uc_query.js tags --instances --org XFTJ8001
-node scripts/uc_query.js bpm 30560224
-node scripts/uc_query.js sug pos 经理
-```
-
-#### 2. 测试环境角色与组织变更 (`scripts/uc_modify.js`，强制两阶段确认)
-```bash
-# 1. 新增员工 UC 岗位角色 (阶段 1: Pre-flight 预审 Diff -> 阶段 2: 用户确认后 --confirm)
-node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理
-node scripts/uc_modify.js add-pos 30560224 --org XFTJ8001 --role 商圈经理 --confirm
-
-# 2. 修改员工已配置的 UC 岗位角色 (阶段 1: Pre-flight 预审 Diff -> 阶段 2: 用户确认后 --confirm)
-node scripts/uc_modify.js mod-pos 30560224 --id 697424 --org LW1059 --role 12134
-node scripts/uc_modify.js mod-pos 30560224 --id 697424 --org LW1059 --role 12134 --confirm
-
-# 3. 🔴 高危：删除员工手动配置的 UC 岗位角色 (需用户二次确认)
-node scripts/uc_modify.js del-pos 30560224 --id 697424
-node scripts/uc_modify.js del-pos 30560224 --id 697424 --confirm
-
-# 4. 关系配置中心角色绑定与解绑 (阶段 1 -> 阶段 2)
-node scripts/uc_modify.js bind-role 30560224 --role GUANLIYUAN
-node scripts/uc_modify.js bind-role 30560224 --role GUANLIYUAN --confirm
-node scripts/uc_modify.js unbind-role 30560224 --role GUANLIYUAN
-node scripts/uc_modify.js unbind-role 30560224 --role GUANLIYUAN --confirm
-```
-
----
-
-## 🗼 13. 灯塔 ARMS 前端监控与全链路排障 (`scripts/arms_query.js`)
-
-直连公司前端监控平台 `http://arms.fee.lianjia.com`，补齐前端侧的线上/测试排障闭环（只读观测，**不包含告警规则、告警历史与自定义看板**）。
-
-### 13.1 核心特性与双轨鉴权
-1. **双轨鉴权自动切换**：
-   - **轨道 A（优先 `x-api-key`）**：读取 `--api-key` 参数、`ARMS_API_KEY` 环境变量或 `~/.shrimp/skills/live-inspector/arms_api_key.json`（可通过 `--set-api-key <key>` 写入），完全脱离浏览器依赖，覆盖日志检索/聚合、`viewid` 追踪、错误榜、资源异常、白屏、性能与 API 监控；
-   - **轨道 B（自动回退 Chrome Cookie 中继）**：未配置 API Key 或加传 `--use-cookie` 时，复用 `createCredentialSession` 从 Chrome 扩展自动同步 `arms.fee.lianjia.com` 登录态并缓存至 `arms_cookie.json`。
-2. **免登录项目自发现与缓存**：
-   - 调用免鉴权接口 `/api/aiMcp/project/list` 拉取全量项目清单并缓存至 `~/.shrimp/skills/live-inspector/arms_projects.json`（24h 有效，支持 `--refresh`）；
-   - 支持传项目 ID（`1737`）、项目标识（`app-life-fe-intelligentize`）、Git 仓库名（`life-fe-intelligentize`）或中文显示名（`智慧工地H5`）；缺省时自动探测当前 Git 仓库。
-
-### 13.2 常用 CLI 命令速查
-```bash
-# 0. 保存 x-api-key (可选，已配置后无需浏览器登录态)
-node scripts/arms_query.js --set-api-key <你的API_KEY>
-
-# 1. 查找灯塔项目 (免鉴权)
-node scripts/arms_query.js projects intelligentize
-
-# 2. 查看项目健康分、PV/UV、错误率与体验分概览
-node scripts/arms_query.js overview life-fe-intelligentize
-
-# 3. 自定义条件日志检索与聚合 (queryData，最大窗口 7 天)
-node scripts/arms_query.js logs 1737 -q "TRTC SDK初始化失败" -t today -n 10 --slim
-node scripts/arms_query.js logs 1737 -q "TRTC" --aggs pageType -t today
-node scripts/arms_query.js logs 1737 -f "common.ucid=3000110000457769" -f "extra~TRTC" -t 24h
-
-# 4. 运行时 / 资源加载 / 白屏异常 TOP 榜与采样明细
-node scripts/arms_query.js errors 1737 --kind all -n 10
-node scripts/arms_query.js errors 1737 --kind resource --source-type script
-node scripts/arms_query.js errors 1737 --error-id "===TRTC SDK初始化失败:===TRTC SDK初始化失败:"
-
-# 5. 按 viewId 还原单次访问全链路时间线 (PV -> 性能 -> API 失败/慢请求 -> JS 报错)
-node scripts/arms_query.js trace 1737 2w4360jic43mwmzff5g
-
-# 6. Core Web Vitals 性能分位与 API 请求健康度
-node scripts/arms_query.js perf 1737 --metric LCP --days 7
-node scripts/arms_query.js api 1737 --failed-only -t 24h -n 20
-node scripts/arms_query.js pvuv 1737
-```
-
----
-
-## 📚 规范与实战文档索引
-
-- **Apollo 配置探查协议与实战手册**：[references/apollo-config-guide.md](references/apollo-config-guide.md)
-- **FAST 日志协议与检索自愈机制**：[references/fast-log-guide.md](references/fast-log-guide.md)
-- **CI 构建与测试环境部署手册**：[references/ci-deploy-guide.md](references/ci-deploy-guide.md)
-- **Dinsight 自然语言查数协议**：[references/dinsight-query-guide.md](references/dinsight-query-guide.md)
-- **本地排查流程知识库操作手册**：[references/local-knowledge-guide.md](references/local-knowledge-guide.md)
-- **通用浏览器操作手册**：[references/browser-guide.md](references/browser-guide.md)
-- **页面操作流程沉淀与复用**：[references/page-flow-guide.md](references/page-flow-guide.md)
-- **Trace 全链路时序排障实战**：[examples/100_trace_and_log_query.md](examples/100_trace_and_log_query.md)
+## 📚 规范与实战文档索引 (Reference Guides)
+
+按需下钻阅读各中台系统的完整 CLI 参数与实战协议：
+
+- **⚡ FAST / Loki 日志排查与时序分析手册**：[references/fast-log-guide.md](references/fast-log-guide.md)
+- **⚙️ Apollo 配置探查、发布轨迹与变更参谋手册**：[references/apollo-config-guide.md](references/apollo-config-guide.md)
+- **🗼 灯塔 ARMS 前端监控与全链路排障手册**：[references/arms-monitor-guide.md](references/arms-monitor-guide.md)
+- **🛡️ Luke 权限中心双环境治理与双人 Diff 手册**：[references/luke-permission-guide.md](references/luke-permission-guide.md)
+- **🏢 UC 组织与人员角色探查及测试环境治理手册**：[references/uc-org-guide.md](references/uc-org-guide.md)
+- **🕊️ 白鸽网关三环境探查与路由治理手册**：[references/baige-gateway-guide.md](references/baige-gateway-guide.md)
+- **🔎 ES 搜索云平台索引探查与测试环境 CRUD 手册**：[references/es-search-guide.md](references/es-search-guide.md)
+- **📡 Kafka 消息无损探查与安全模拟投递手册**：[references/kafka-guide.md](references/kafka-guide.md)
+- **🗄️ 数据库查询参考手册 (服务云 MySQL / 线下直连)**：[references/database-guide.md](references/database-guide.md)
+- **🚀 CI 构建与测试环境工作负载自动化部署手册**：[references/ci-deploy-guide.md](references/ci-deploy-guide.md)
+- **🧠 Dinsight 自然语言大数据探查协议手册**：[references/dinsight-query-guide.md](references/dinsight-query-guide.md)
+- **🌐 通用 Chrome 浏览器操作与页面数据抓取手册**：[references/browser-guide.md](references/browser-guide.md)
+- **📋 页面操作流程沉淀与整段复用手册**：[references/page-flow-guide.md](references/page-flow-guide.md)
+- **📝 本地排查流程知识库操作与沉淀手册**：[references/local-knowledge-guide.md](references/local-knowledge-guide.md)
+- **🧵 Trace 全链路时序排障实战案例**：[examples/100_trace_and_log_query.md](examples/100_trace_and_log_query.md)

@@ -1,12 +1,54 @@
-# 📘 FAST / Kibana 日志与全链路 Trace 排障参考手册
+# 📘 FAST / Kibana 日志与全链路 Trace 排障参考手册 (Fast Log Guide)
 
-本手册为 **AI Agent** 在执行线上排障时提供底层 ES DSL 语法、意图参数组装及排障方法论。
+本手册为 AI Agent 在执行线上生产环境与测试环境日志排查、异常捕获与 TraceId 全链路时序分析时提供底层检索语法、CLI 参数速查及排障方法论。
 
 ---
 
-## 🧭 AI 内部调用意图映射速查
+## ⚡ 1. 线上环境：FAST 日志检索内部 CLI 参数速查 (`scripts/fast_query.js`)
 
-AI 在接收到用户自然语言排查需求时，自动在后台组装以下参数静默执行：
+AI 后台执行 `node scripts/fast_query.js [flags]`：
+
+| 参数 Flag | 简写 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `--app` | `-a` | `iot-platform` | 目标微服务名 (如 `iot-platform`, `utopia-scs-saas`) |
+| `--query` | `-q` | `*` | Lucene 检索短语 / 表达式 |
+| `--time` | `-t` | `24h` | 相对时间范围 (如 `15m`, `1h`, `24h`, `7d`) |
+| `--from` | - | `null` | 起始时间 (支持 `2026-08-31 14:00:00` 或 `now-1h`) |
+| `--to` | - | `now` | 结束时间 (支持绝对时间或 `now`) |
+| `--size` | `-n` | `20` (Trace: `50`) | 最大返回日志条数 |
+| `--order` | `-o` | `desc` (Trace: `asc`) | 排序方式: `desc` (最新在前) 或 `asc` (正序链路) |
+| `--level` | `-l` | `null` | 日志级别过滤: `ERROR`, `WARN`, `INFO`, `DEBUG` |
+| `--bltag` | - | `null` | 出入参标签: `request_in`, `request_out` 等 |
+| `--uri` | `-u` | `null` | 接口 URI 过滤 (如 `/api/sync/lockDetail`) |
+| `--traceId` | `--tid` | `null` | 指定 TraceId (自动切换为正序链路回溯模式) |
+| `--slim` | - | `false` | 瘦身模式，截断超长报文与堆栈 JSON |
+| `--format` | `-f` | `json` | 输出格式: `json`, `brief`, `table` |
+
+---
+
+## 🧪 2. 线下/测试环境：Paoding Loki 容器与泳道日志检索 (`scripts/test_log_query.js`)
+
+AI 后台执行 `node scripts/test_log_query.js <appId> [options]`：
+
+| 参数 Flag | 简写 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `<appId>` | - | 必填 | 目标微服务别名 (如 `saas`, `algo`, `warehouse`, `iot`) |
+| `--query` | `-q` | `*` | 关键词或报错过滤短语 (如 `NullPointer`, `Timeout`) |
+| `--level` | `-l` | `null` | 日志级别: `ERROR`, `WARN`, `INFO`, `DEBUG` |
+| `--traceId` | `--tid` | `null` | 指定 TraceId 过滤与调用链回溯 |
+| `--lane` | `--ns` | `null` | 指定大禹泳道名或命名空间 (如 `lixiaojing02`, `lixiaojing03`) |
+| `--pod` | - | `null` | 显式指定 Pod 实例名称 |
+| `--time` | `-t` | `1h` | 相对时间跨度 (如 `15m`, `30m`, `1h`, `2h`) |
+| `--size` | `-n` | `20` (Trace: `50`) | 最大返回日志条数 |
+| `--format` | `-f` | `table` | 输出格式: `table` (表格), `brief` (紧凑), `json` |
+| `--slim` | - | `false` | 瘦身模式，截断超长堆栈或报文 |
+| `--set-cookie`| - | - | 保存更新 Paoding 登录 Cookie 凭证至本地缓存 |
+
+> 💡 **自动分流支持**：在 `fast_query.js` 中指定 `--env test` 时，底层会自动委派至 `test_log_query.js` 容器直连通道。
+
+---
+
+## 🧭 3. 典型场景与意图映射速查
 
 | 用户自然语言场景 | AI 后台自动组装与执行的指令 | 内部检索逻辑与 DSL |
 | :--- | :--- | :--- |
@@ -19,9 +61,9 @@ AI 在接收到用户自然语言排查需求时，自动在后台组装以下�
 
 ---
 
-## ⚡ 底层查询引擎架构与自愈细节
+## ⚡ 4. 底层查询引擎架构与自愈细节
 
-### 🌟 双引擎联动自愈架构 (Dual-Engine Self-Healing)
+### 4.1 双引擎联动自愈架构 (Dual-Engine Self-Healing)
 1. **一级通道（Fast-Path 极速直连）**：
    * 已收录的微服务直接向内网 Kibana 网关（如 `https://fast108-kibana-logcenter-intra.intra.ke.com/internal/search/es`）发起原生 HTTP POST；
    * 单次检索耗时仅需 **100~200ms**，日常使用无需拉起浏览器。
