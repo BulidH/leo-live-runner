@@ -20,6 +20,7 @@ import {
   diffFields,
   onesUrl,
   roleNames,
+  roleLabel,
   SCHEDULE_LABELS
 } from '../scripts/common/ones.js';
 import { parseArgs as parseQueryArgs } from '../scripts/ones_query.js';
@@ -240,6 +241,19 @@ test('ONES - ones_query parseArgs 解析子命令与选项', () => {
 
   assert.equal(parseQueryArgs(['me']).command, 'me');
   assert.equal(parseQueryArgs(['--help']).help, true);
+});
+
+test('ONES - roleLabel 把角色代码翻成可读名称', () => {
+  const map = { ER0001: 'RD', ER0002: 'FE', ER0003: 'QA', ER0007: 'PM' };
+  assert.equal(roleLabel('ER0001', map), 'RD');
+  assert.equal(roleLabel('ER0003', map), 'QA');
+  // 未知代码原样返回，不退化成空
+  assert.equal(roleLabel('ER9999', map), 'ER9999');
+  // 空值返回空串
+  assert.equal(roleLabel('', map), '');
+  assert.equal(roleLabel(undefined, map), '');
+  // 没有映射表时也不崩
+  assert.equal(roleLabel('ER0001'), 'ER0001');
 });
 
 test('ONES - ones_modify parseArgs 解析写操作参数与 --confirm', () => {

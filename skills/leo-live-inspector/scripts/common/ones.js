@@ -421,8 +421,34 @@ export async function getWorkbenchList({ category = 'estimate', quickCheck = 'al
   });
 }
 
-function overlaps(rowStart, rowEnd, from, to) {
-  if (!from && !to) return true;
+// get_estimate_role 的代码→名称映射，进程内缓存（一次会话读一次即可）
+let ESTIMATE_ROLE_MAP = null;
+
+/** 取角色代码→名称映射（ER0001 → RD）。失败时退化为空表，不阻塞排期查询 */
+export async function getEstimateRoleMap({ cookie, refresh = false } = {}) {
+  if (ESTIMATE_ROLE_MAP && !refresh) return ESTIMATE_ROLE_MAP;
+  try {
+    const rows = await executeOnesApi({ path: '/api/requirements/get_estimate_role', cookie });
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach(r => {
+      if (r && r.code) map[String(r.code)] = r.value || String(r.code);
+    });
+    ESTIMATE_ROLE_MAP = map;
+    return map;
+  } catch {
+    ESTIMATE_ROLE_MAP = {};
+    return ESTIMATE_ROLE_MAP;
+  }
+}
+
+/** 把角色代码翻成可读名称；未知代码原样返回 */
+export function roleLabel(code, map = {}) {
+  const c = String(code || '').trim();
+  if (!c) return '';
+  return map[c] || c;
+}
+
+function overlaps(rowStart, rowEnd, from, to) {  if (!from && !to) return true;
   const s = rowStart ? String(rowStart).slice(0, 10) : '';
   const e = rowEnd ? String(rowEnd).slice(0, 10) : s;
   if (!s) return false;
@@ -438,13 +464,17 @@ function overlaps(rowStart, rowEnd, from, to) {
  * ONES 工作台的 estimate 列表固定按「当前登录人」返回，person 只用于校验/标注。
  */
 export async function getMySchedule({ from, to, person, includeBugs = false, cookie } = {}) {
-  const data = await getWorkbenchList({ category: 'estimate', limit: 1000, cookie });
+  const [data, roleMap] = await Promise.all([
+    getWorkbenchList({ category: 'estimate', limit: 1000, cookie }),
+    getEstimateRoleMap({ cookie })
+  ]);
   const rows = (data?.datalist || []).map(row => ({
     requireId: row.require_id,
     estimateId: row.estimate_id,
     title: row.title || '',
     action: row.action || '',
-    role: row.role_code || '',
+    roleCode: row.role_code || '',
+    role: roleLabel(row.role_code, roleMap),
     member: row.member || '',
     manHours: row.man_hour ?? 0,
     finished: Number(row.finished) === 1,

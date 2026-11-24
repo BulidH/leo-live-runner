@@ -67,6 +67,10 @@ node scripts/ones_query.js schedule --with-bugs
 
 每条估时（estimate）包含：`require_id / estimate_id / title / action（开发/联调/技术设计/测试/其他） / role_code / member / man_hour / start_time / end_time / finished / sprint_id / sprint_title / date_distribution`。
 
+⚠️ **`minepage` 只给角色代码**：这里返回的是 `role_code`（如 `ER0001`），**没有** `role_name`。脚本会调 `GET /api/requirements/get_estimate_role`（返回 `[{code:'ER0001', value:'RD'}]`，共 24 项）建立映射，把 `ER0001` 翻成 `RD` 再展示，同时保留原始 `role` 字段。映射在进程内缓存，查询失败时退化为原样显示代码，不影响排期查询本身。
+
+注意与需求详情区分：`get_estimate_and_schedule_detail` 的估时是**直接给 `role_name`**（`RD`），两条链路的字段形态不同，不要混用。
+
 脚本会做两件事：
 1. 按 `--from/--to` 与 `start_time~end_time` 求交集过滤（服务端忽略 `start_date/end_date` 参数，必须本地过滤）；
 2. 按 `require_id` 聚合成「这个时间窗里我要交付哪些需求、各多少总人天」。
