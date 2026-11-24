@@ -82,7 +82,7 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 | [database-guide.md](references/database-guide.md) |
 | **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
 | **“把当前分支构建部署到测试环境”** | `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
-| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、测试环境写操作（预检 → 确认两步） | [deploy-web-guide.md](references/deploy-web-guide.md) |
+| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、测试环境写操作（预检 → 确认两步）、凭据台账（一键跳转登录并自动刷新 Cookie） | [deploy-web-guide.md](references/deploy-web-guide.md) |
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
 | **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 | [dinsight-query-guide.md](references/dinsight-query-guide.md) |
 | **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
@@ -149,7 +149,8 @@ flowchart TD
 
 - **内生中继机制**：默认复用本地 `~/.shrimp/skills/live-inspector/` 下的缓存凭据；仅在凭据缺失或明确鉴权失败时，通过 `127.0.0.1:19527` 本地桥接从已加载的 Chrome 扩展（**Leo cookie.txt Locally**，版本 ≥ 1.3.15）静默同步；
 - **平台支持范围**：服务云 (`cloud_token.json`)、Shipwright (`shipwright_cookie.json`)、FeCI (`feci_cookie.json`)、Apollo Portal (`test_apollo_cookie.json`)、Luke 权限 (`luke_cookie.json`)、UC 组织 (`test_uc_cookie.json`)、灯塔 ARMS (`arms_api_key.json` / `arms_cookie.json`)、ES 搜索云 (`search_cookie.json`)、白鸽网关 (`baige_cookie.json`)、Dinsight、FAST (`fast_cookie.json`)；
-- **独立中继工具**：可使用 `node scripts/credential_relay.js <targetUrl>` 单点测试与同步凭据（严禁调用任何外部自动化浏览器）。
+- **独立中继工具**：可使用 `node scripts/credential_relay.js <targetUrl>` 单点测试与同步凭据（严禁调用任何外部自动化浏览器）；
+- **可视化集中管理**：`node scripts/deploy_web.js --open` 打开的「凭据」Tab 可一屏看到全部凭据的保存状态 / 更新时间 / Cookie 名，并对任意条目点「刷新」→ Chrome 自动打开该站点，登录完成后自动回读落盘（页面只显示元信息，不显示凭据值）。
 
 ---
 
@@ -188,7 +189,7 @@ flowchart TD
 - **📡 Kafka 消息无损探查与安全模拟投递手册**：[references/kafka-guide.md](references/kafka-guide.md)
 - **🗄️ 数据库查询参考手册 (服务云 MySQL / 线下直连)**：[references/database-guide.md](references/database-guide.md)
 - **🚀 CI 构建与测试环境工作负载自动化部署手册**：[references/ci-deploy-guide.md](references/ci-deploy-guide.md)
-- **🖥️ 测试环境控制台（部署 + 日志检索 + Apollo + 写操作）手册**：[references/deploy-web-guide.md](references/deploy-web-guide.md)
+- **🖥️ 测试环境控制台（部署 + 日志检索 + Apollo + 写操作 + 凭据管理）手册**：[references/deploy-web-guide.md](references/deploy-web-guide.md)
 - **🧠 Dinsight 自然语言大数据探查协议手册**：[references/dinsight-query-guide.md](references/dinsight-query-guide.md)
 - **🌐 通用 Chrome 浏览器操作与页面数据抓取手册**：[references/browser-guide.md](references/browser-guide.md)
 - **📋 页面操作流程沉淀与整段复用手册**：[references/page-flow-guide.md](references/page-flow-guide.md)

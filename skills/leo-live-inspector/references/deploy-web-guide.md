@@ -1,14 +1,15 @@
-# 🖥️ 测试环境控制台（部署 · 日志 · Apollo · 写操作）
+# 🖥️ 测试环境控制台（部署 · 日志 · Apollo · 写操作 · 凭据）
 
-面向人工操作的本地一站式控制台，按 Tab 分为首页（能力导航）、部署、日志检索、Apollo 配置、写操作五块。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
+面向人工操作的本地一站式控制台，按 Tab 分为首页（能力导航）、部署、日志检索、Apollo 配置、写操作、凭据六块。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
 
 | Tab | 能力 | 复用的脚本 |
 | :--- | :--- | :--- |
-| **首页** | 五张能力卡片 + 安全边界说明，卡片可直接跳转到对应 Tab | - |
+| **首页** | 七张能力卡片 + 安全边界说明，卡片可直接跳转到对应 Tab | - |
 | **部署** | 合并 QA → 推送 → Shipwright 构建 → 下发测试环境；右侧「最近任务」可回看任意历史日志 | `ci_deploy.js` |
 | **日志检索** | 测试环境容器日志 / 生产 FAST-Kibana（只读），按服务+关键词+级别+时间窗查 | `test_log_query.js` / `fast_query.js` |
 | **Apollo 配置** | 配置速查（支持 test/preview/prod 只读）与配置项发布轨迹 | `apollo_query.js` / `apollo_history.js` |
 | **写操作** | Apollo 改值与发布、ES 文档改删、Kafka 投递、测试库 SQL —— 全部「预检 → 确认」两步 | `apollo_modify.js` / `es_modify.js` / `kafka_send.js` / `test_mysql_query.js` |
+| **凭据** | 17 项 Cookie / Token 台账（4 个分组）：状态、更新时间、Cookie 名；一键刷新（Chrome 跳转登录页后自动回读落盘）、手动粘贴、清除、探活 | `credential_relay.js`（本地桥接） |
 
 ---
 
@@ -45,6 +46,9 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 | `POST /api/apollo/query` / `/history` | 配置速查 / 发布轨迹 |
 | `POST /api/write/apollo\|es\|kafka\|mysql` | `confirm=false` 预检，`confirm=true` 才写入 |
 | `GET /api/apps` | 服务名候选清单（来自 service catalog） |
+| `GET /api/credential-list` | 凭据台账（只读元信息，不返回凭据值） |
+| `POST /api/credential/refresh` | 打开站点并回读 Cookie，登录完成后自动落盘 |
+| `POST /api/credential/open` / `save` / `clear` / `probe` | 打开登录页 / 手动粘贴 / 清除 / 探活 |
 
 **环境锁死**：每个写操作路由都在服务端硬钉测试环境（`-e test` / `--env TEST`），不接受前端传入的其他环境值，生产写入在后端就被物理拦截。
 
@@ -55,7 +59,39 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 
 ---
 
-## 🔗 二、核心执行链路
+## 🔑 三、凭据 Tab：查看与「点一下就刷新」
+
+skill 全部能力都依赖内网站点登录态。凭据 Tab 把 `~/.shrimp/skills/live-inspector/` 下的 17 个凭据文件集中成一张台账。
+
+**页面只展示元信息**：是否存在、`updated_at`、Cookie 名列表与数量。**任何 Cookie / Token 的值都不会出现在页面上**，也不会出现在接口返回里。
+
+| 操作 | 行为 |
+| :--- | :--- |
+| **刷新** | 经本地桥接（`127.0.0.1:19526`）让 Chrome 打开目标站点：已是登录态则直接回读一步落盘；未登录则停在登录页，页面每 3 秒重读一次，**你登录完成后自动落盘，不用再点第二次**（等待上限可选 45 秒 / 2 分钟 / 5 分钟） |
+| **打开登录页** | 只打开站点，不写任何文件 |
+| **粘贴保存** | 手工兜底：接受 Cookie 头、Netscape `cookies.txt`、JSON 三种格式 |
+| **清除** | 删除本机凭据文件（确认后执行） |
+| **探活** | 用已保存 Cookie 打一次该站点真实接口，判定「正常 / 需重新登录」 |
+| **刷新全部已登录站点** | 依次刷新所有已保存的 Cookie 凭据，适合长期没登录后一次性补齐 |
+
+台账覆盖范围：
+
+| 分组 | 凭据 |
+| :--- | :--- |
+| 构建部署 | Shipwright、服务云/CI（`cloud_token.json`）、FeCI |
+| 配置中心 | Apollo 测试、Apollo 生产 |
+| 权限与网关 | Luke 测试/生产、白鸽网关 测试/预发/生产、UC 测试 |
+| 数据查询 | 搜索云 ES、FAST、Paoding Loki、灯塔 ARMS（Cookie + API Key）、Dinsight |
+
+**探活判据**：HTTP 401/403、重定向到登录页、接口返回 `"code":401`、HTML 里 JS 跳登录（`location.replace("//login.ke.com/...")`）、`not_authenticated` 文案，任一命中即判定登录态失效。API Key 类凭据无法从浏览器读取，只能手动粘贴。
+
+**刷新守门（重要）**：浏览器里可能只剩埋点 Cookie，读到 Cookie 不代表登录有效。因此刷新会**先用读到的 Cookie 探活，通过后才写盘**；不通过就继续等你在 Chrome 里登录，超时则报「未确认到有效登录态（原有凭据未改动）」——避免一次无效刷新把原本可用的凭据覆盖坏。
+
+**刷新失败的三种情况**：桥接没连上（Chrome 未启用扩展「Leo cookie.txt Locally」）直接报错；等待超时说明登录没完成，页面提示重试；站点没有探活接口时会直接落盘（只报同步了几个 Cookie）。
+
+---
+
+## 🔗 四、核心执行链路
 
 ```mermaid
 flowchart LR
@@ -78,7 +114,7 @@ flowchart LR
 
 ---
 
-## 📋 三、项目清单与仓库来源
+## 📋 五、项目清单与仓库来源
 
 项目清单**只来自「已登记 git 地址」**，不再扫描本机所有服务目录与 Git 仓库：
 
@@ -103,7 +139,7 @@ flowchart LR
 
 ---
 
-## 🎛️ 四、下拉交互设计（易踩坑的两处）
+## 🎛️ 六、下拉交互设计（易踩坑的两处）
 
 | 控件 | 策略 | 原因 |
 | :--- | :--- | :--- |
@@ -129,7 +165,7 @@ flowchart LR
 
 ---
 
-## 🌿 五、分支形态识别
+## 🌿 七、分支形态识别
 
 测试环境实际使用的是**最新的月度 QA 分支**，两种命名都支持并自动取最新的一支：
 
@@ -140,7 +176,7 @@ flowchart LR
 
 ---
 
-## 🔒 六、安全边界
+## 🔒 八、安全边界
 
 1. **冲突策略固定「严格失败」**：合并出现冲突立即中止并列出冲突文件，**不自动改代码、不推送、不部署**；QA 分支受保护时在推送处提示改走 MR；
 2. **隔离执行**：合并在独立的临时 worktree 中完成，不影响用户当前正在编辑的工作目录；
@@ -150,7 +186,7 @@ flowchart LR
 
 ---
 
-## 💾 七、状态持久化
+## 💾 九、状态持久化
 
 | 文件 | 内容 |
 | :--- | :--- |

@@ -23,6 +23,24 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveAppId, loadServiceCatalog } from './common/services.js';
+import {
+  saveApolloTestCookie,
+  saveApolloProdCookie,
+  saveLukeCookie,
+  saveBaigeCookie,
+  savePaodingCookie,
+  saveCloudCookie,
+  saveFeciCookie,
+  saveShipwrightCookie,
+  saveSearchCookie,
+  saveFastCookie,
+  saveUcCookie,
+  saveArmsCookie,
+  saveArmsApiKey
+} from './common/credentials.js';
+import { saveDinsightCredentials } from './common/dinsight.js';
+import { getBrowserCookies, cookiesToHeader } from './credential_relay.js';
+import { visitForCookies } from './cli/lib/cli.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -644,15 +662,19 @@ async function startJob({ project, devBranch, qaBranch, mode, conflict }) {
 // ------------------------------------------------------------ credentials ----
 // CI 构建与部署依赖内网站点的登录态，过期时给出明确提示而不是让用户猜
 
-async function probeCredential(file, url, init = {}) {
+async function probeCredential(file, url, init = {}, cookieOverride = null) {
   let cred;
-  try {
-    cred = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return { ok: false, message: '未保存凭据' };
+  let cookie = String(cookieOverride || '').trim();
+  if (!cookie) {
+    try {
+      cred = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return { ok: false, message: '未保存凭据' };
+    }
+    cookie = cred.cookie || '';
   }
-  const cookie = cred.cookie || '';
-  if (!cookie) return { ok: false, message: '未保存凭据', updatedAt: cred.updated_at || null };
+  const updatedAt = (cred && cred.updated_at) || null;
+  if (!cookie) return { ok: false, message: '未保存凭据', updatedAt };
   try {
     const res = await fetch(url, {
       ...init,
@@ -661,15 +683,26 @@ async function probeCredential(file, url, init = {}) {
     });
     const text = await res.text();
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, message: `登录态已失效 (HTTP ${res.status})`, updatedAt: cred.updated_at || null };
+      return { ok: false, message: `登录态已失效 (HTTP ${res.status})`, updatedAt };
+    }
+    // 302 到统一登录页时 fetch 会跟随到底，用最终 URL 判断比看页面内容可靠
+    if (/\/login|passport|\/sso/i.test(res.url || '')) {
+      return { ok: false, message: '登录态已失效（被重定向到登录页）', updatedAt };
+    }
+    if (/"code"\s*:\s*(401|403)\b/.test(text)) {
+      return { ok: false, message: '登录态已失效（接口返回未登录）', updatedAt };
+    }
+    // 部分站点用 200 + JS 跳转登录页，既不换 URL 也不报错
+    if (/location\.(replace|href)\s*[=(]\s*["'][^"']*(login|passport|sso)/i.test(text) || /not_authenticated/i.test(text)) {
+      return { ok: false, message: '登录态已失效（页面跳转登录）', updatedAt };
     }
     if (/ke-passport/i.test(text) || /<title>[^<]*(登录|login)/i.test(text)) {
-      return { ok: false, message: '登录态已失效（被重定向到登录页）', updatedAt: cred.updated_at || null };
+      return { ok: false, message: '登录态已失效（被重定向到登录页）', updatedAt };
     }
-    if (!res.ok) return { ok: false, message: `请求异常 HTTP ${res.status}`, updatedAt: cred.updated_at || null };
-    return { ok: true, message: '正常', updatedAt: cred.updated_at || null };
+    if (!res.ok) return { ok: false, message: `请求异常 HTTP ${res.status}`, updatedAt };
+    return { ok: true, message: '正常', updatedAt };
   } catch (err) {
-    return { ok: false, message: '请求失败: ' + err.message, updatedAt: cred.updated_at || null };
+    return { ok: false, message: '请求失败: ' + err.message, updatedAt };
   }
 }
 
@@ -687,6 +720,324 @@ async function checkCredentials() {
     )
   ]);
   return { shipwright, cloud };
+}
+
+// ------------------------------------------------------- 凭据台账 (Tab) ----
+// 页面只展示「有没有 / 什么时候更新的 / 有哪些 cookie 名」，绝不把 cookie 值渲染到页面上。
+// 刷新时通过本地桥接让 Chrome 打开目标站点（没登录就是登录页），登录完成后自动回读落盘。
+
+const CREDENTIALS = [
+  {
+    id: 'shipwright', label: 'Shipwright 构建平台', group: '构建部署',
+    file: 'shipwright_cookie.json', env: 'SHIPWRIGHT_COOKIE', url: 'https://shipwright.ke.com/',
+    save: header => saveShipwrightCookie(header),
+    probe: { url: 'https://shipwright.ke.com/workflow-context/v1/workflows/query?pageNumber=1&pageSize=1', init: { method: 'POST', body: JSON.stringify({ pageNumber: 1, pageSize: 1 }) } },
+    note: '失效表现：部署时报「无法获取构建器」'
+  },
+  {
+    id: 'cloud', label: '服务云 / CI 平台', group: '构建部署',
+    file: 'cloud_token.json', env: 'CLOUD_COOKIE', url: 'https://cloud.intra.ke.com/',
+    save: header => saveCloudCookie(header),
+    probe: { url: 'https://cloud.intra.ke.com/apis/ci/v1/deployment/images/self-check?pageNumber=1&pageSize=1', init: { method: 'GET' } },
+    note: '失效表现：镜像自检查询、下发部署失败'
+  },
+  {
+    id: 'feci', label: 'FeCI 前端流水线', group: '构建部署',
+    file: 'feci_cookie.json', env: 'FECI_COOKIE', url: 'https://feci-next.ke.com/',
+    save: header => saveFeciCookie(header),
+    probe: { url: 'https://feci-next.ke.com/', init: { method: 'GET' } },
+    note: '失效表现：feci_deploy.js 触发前端构建失败'
+  },
+  {
+    id: 'apollo_test', label: 'Apollo Portal（测试）', group: '配置中心',
+    file: 'test_apollo_cookie.json', env: 'APOLLO_TEST_COOKIE', url: 'http://test-apollo.portal.life.ke.com/',
+    save: header => saveApolloTestCookie(header),
+    probe: { url: 'http://test-apollo.portal.life.ke.com/', init: { method: 'GET' } },
+    note: '失效表现：测试环境配置查询 / 改值发布报登录失败'
+  },
+  {
+    id: 'apollo_prod', label: 'Apollo Portal（生产）', group: '配置中心',
+    file: 'apollo_cookie.json', env: 'APOLLO_PROD_COOKIE', url: 'http://apollo.portal.life.ke.com/',
+    save: header => saveApolloProdCookie(header),
+    probe: { url: 'http://apollo.portal.life.ke.com/', init: { method: 'GET' } },
+    note: '仅用于生产配置只读速查'
+  },
+  {
+    id: 'luke_test', label: 'Luke 权限中心（测试）', group: '权限与网关',
+    file: 'test_luke_cookie.json', env: 'LUKE_TEST_COOKIE', url: 'https://test-luke.ke.com',
+    save: header => saveLukeCookie({ env: 'test', cookieStr: header }),
+    probe: { url: 'https://test-luke.ke.com', init: { method: 'GET' } },
+    note: '失效表现：luke_query.js / luke_modify.js 报无权限或登录失败'
+  },
+  {
+    id: 'luke_prod', label: 'Luke 权限中心（生产）', group: '权限与网关',
+    file: 'luke_cookie.json', env: 'LUKE_PROD_COOKIE', url: 'https://luke.ke.com',
+    save: header => saveLukeCookie({ env: 'prod', cookieStr: header }),
+    probe: { url: 'https://luke.ke.com', init: { method: 'GET' } },
+    note: '仅用于生产权限只读排查'
+  },
+  {
+    id: 'baige_test', label: '白鸽网关（测试）', group: '权限与网关',
+    file: 'test_baige_cookie.json', env: 'BAIGE_TEST_COOKIE', url: 'http://life-fe-baige-node.offline-beta.ttb.test.ke.com',
+    save: header => saveBaigeCookie({ env: 'test', cookieStr: header }),
+    probe: { url: 'http://life-fe-baige-node.offline-beta.ttb.test.ke.com', init: { method: 'GET' } },
+    note: '失效表现：网关服务 / 路由查询失败'
+  },
+  {
+    id: 'baige_preview', label: '白鸽网关（预发）', group: '权限与网关',
+    file: 'prev_baige_cookie.json', env: 'BAIGE_PREVIEW_COOKIE', url: 'http://preview.baige.ke.com',
+    save: header => saveBaigeCookie({ env: 'preview', cookieStr: header }),
+    probe: { url: 'http://preview.baige.ke.com', init: { method: 'GET' } },
+    note: '三环境对照时的预发侧登录态'
+  },
+  {
+    id: 'baige_prod', label: '白鸽网关（生产）', group: '权限与网关',
+    file: 'baige_cookie.json', env: 'BAIGE_PROD_COOKIE', url: 'https://baige.ke.com',
+    save: header => saveBaigeCookie({ env: 'prod', cookieStr: header }),
+    probe: { url: 'https://baige.ke.com', init: { method: 'GET' } },
+    note: '仅用于生产网关只读排查'
+  },
+  {
+    id: 'uc_test', label: 'UC 组织管理中心（测试）', group: '权限与网关',
+    file: 'test_uc_cookie.json', env: 'UC_TEST_COOKIE', url: 'http://test3-uc.admin.ke.com/',
+    save: header => saveUcCookie({ env: 'test', cookieStr: header }),
+    probe: {
+      url: 'http://test3-uc.admin.ke.com/graphql',
+      init: { method: 'POST', body: JSON.stringify({ query: '{__typename}' }) }
+    },
+    note: 'UC 线上暂未接入，只有测试环境'
+  },
+  {
+    id: 'search', label: '搜索云 ES 平台', group: '数据查询',
+    file: 'search_cookie.json', env: 'SEARCH_COOKIE', url: 'https://search.ke.com/',
+    save: header => saveSearchCookie(header),
+    probe: {
+      url: 'https://search.ke.com/ajax/createApp/getAppList',
+      init: { method: 'POST', body: JSON.stringify({ page: 1, size: 1, auth: true, serviceId: '' }) }
+    },
+    note: '失效表现：es_query.js 查索引/文档失败'
+  },
+  {
+    id: 'fast', label: 'FAST 日志平台', group: '数据查询',
+    file: 'fast_cookie.json', env: 'FAST_COOKIE', url: 'https://fast.ke.com/',
+    save: header => saveFastCookie(header),
+    probe: { url: 'https://fast.ke.com/', init: { method: 'GET' } },
+    note: '失效表现：生产日志检索 / TraceId 回溯失败'
+  },
+  {
+    id: 'paoding', label: 'Paoding Loki 日志', group: '数据查询',
+    file: 'paoding_cookie.json', env: 'PAODING_COOKIE', url: 'https://paoding.ke.com/',
+    save: header => savePaodingCookie(header),
+    probe: {
+      url: 'https://paoding.ke.com/api/ds/query?ds_type=loki',
+      init: { method: 'POST', body: JSON.stringify({ queries: [], from: 'now-1m', to: 'now' }) }
+    },
+    note: '失效表现：测试环境容器日志查不到'
+  },
+  {
+    id: 'arms', label: '灯塔 ARMS（Cookie）', group: '数据查询',
+    file: 'arms_cookie.json', env: 'ARMS_COOKIE', url: 'http://arms.fee.lianjia.com/',
+    save: header => saveArmsCookie(header),
+    probe: { url: 'http://arms.fee.lianjia.com/', init: { method: 'GET' } },
+    note: '前端监控异常榜 / ViewId 还原用'
+  },
+  {
+    id: 'dinsight', label: 'Dinsight 查数', group: '数据查询',
+    file: 'dinsight_cookie.json', env: 'DINSIGHT_COOKIE', url: 'https://api-dinsight.ke.com',
+    names: ['prd-assistant-token-prod', 'csrf_token', 'access_token', 'login_ucid', 'security_ticket'],
+    save: header => saveDinsightCredentials(header),
+    probe: { url: 'https://api-dinsight.ke.com/api/v1/auth/me', init: { method: 'GET' } },
+    note: '只保留 token / csrf 等关键字段'
+  },
+  {
+    id: 'arms_api_key', label: '灯塔 ARMS（API Key）', group: '数据查询',
+    file: 'arms_api_key.json', env: 'ARMS_API_KEY', url: '', kind: 'apikey',
+    save: value => saveArmsApiKey(value),
+    note: 'API Key 无法从浏览器读取，只能手动粘贴'
+  }
+];
+
+function credentialById(id) {
+  return CREDENTIALS.find(c => c.id === id) || null;
+}
+
+// 只读元信息：文件是否存在、更新时间、cookie 名与数量（不返回任何 cookie 值）
+function describeCredential(def) {
+  const file = path.join(SHRIMP_DIR, def.file);
+  const out = {
+    id: def.id, label: def.label, group: def.group, file: def.file,
+    url: def.url, note: def.note || '', kind: def.kind || 'cookie',
+    env: def.env, exists: false, updatedAt: null, names: [], count: 0,
+    envOverride: Boolean(def.env && process.env[def.env]), probeSupported: Boolean(def.probe)
+  };
+  let raw = null;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    return out;
+  }
+  out.exists = true;
+  try {
+    const stat = fs.statSync(file);
+    out.bytes = stat.size;
+    out.updatedAt = stat.mtime.toISOString();
+  } catch {}
+  let data = null;
+  try { data = JSON.parse(raw); } catch {}
+  if (data && typeof data === 'object') {
+    if (data.updated_at) out.updatedAt = data.updated_at;
+    const header = [];
+    if (typeof data.cookie === 'string' && data.cookie.trim()) header.push(data.cookie);
+    if (typeof data.token === 'string') header.push(`token=${data.token}`);
+    if (typeof data.apiKey === 'string') header.push(`apiKey=${data.apiKey}`);
+    const names = new Set();
+    for (const chunk of header) {
+      for (const part of chunk.split(';')) {
+        const eq = part.indexOf('=');
+        if (eq > 0) names.add(part.slice(0, eq).trim());
+      }
+    }
+    out.names = [...names].filter(Boolean);
+    out.count = out.names.length;
+  }
+  return out;
+}
+
+function listCredentials() {
+  const groups = [...new Set(CREDENTIALS.map(c => c.group))];
+  return {
+    items: CREDENTIALS.map(describeCredential),
+    groups,
+    dir: SHRIMP_DIR
+  };
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 刷新：先让 Chrome 打开站点（未登录即登录页），已登录直接回读；未登录则在 waitMs 内反复重读，
+// 用户登录完成后无需再点一次，凭据会自动落盘。
+async function refreshCredential({ id, waitMs = 120000 }) {
+  const def = credentialById(id);
+  if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
+  if (def.kind === 'apikey') throw Object.assign(new Error('API Key 无法从浏览器读取，请手动粘贴保存'), { status: 400 });
+  if (!def.url) throw Object.assign(new Error('该凭据没有可访问的站点地址'), { status: 400 });
+
+  const budgetMs = Math.max(15000, Number(waitMs) || 120000);
+  const deadline = Date.now() + budgetMs;
+  let cookies = null;
+  let lastError = null;
+  let opened = false;
+  let readAttempted = false;
+
+  try {
+    cookies = await getBrowserCookies({ url: def.url, names: def.names, timeoutMs: 25000, visit: true });
+    opened = true;
+  } catch (err) {
+    lastError = err;
+    opened = err.code === 'LOGIN_REQUIRED' || err.code === 'COOKIE_NOT_FOUND';
+    if (!opened) throw err;
+  }
+
+  // 浏览器里可能只剩埋点 cookie：拿读到的 cookie 先探活，通过后才落盘，
+  // 避免把原本有效的凭据覆盖成无效值；未通过就继续等用户在 Chrome 里登录。
+  for (;;) {
+    if (cookies && cookies.length) {
+      const header = cookiesToHeader(cookies);
+      let ok = true;
+      if (def.probe) {
+        try { ok = Boolean((await probeCredentialById({ id: def.id, cookieOverride: header })).ok); } catch { ok = true; }
+      }
+      if (ok) {
+        if (!def.save(header)) throw Object.assign(new Error('读取成功但写入本地凭据文件失败'), { status: 500 });
+        return {
+          ok: true,
+          verified: def.probe ? true : null,
+          message: `已同步 ${cookies.length} 个 Cookie 并落盘${def.probe ? '，探活正常' : ''}`,
+          def: describeCredential(def)
+        };
+      }
+    }
+    if (Date.now() >= deadline || (readAttempted && lastError && !['LOGIN_REQUIRED', 'COOKIE_NOT_FOUND'].includes(lastError.code))) break;
+    readAttempted = true;
+    await sleep(3000);
+    try {
+      cookies = await getBrowserCookies({ url: def.url, names: def.names, timeoutMs: 10000 });
+    } catch (err) {
+      lastError = err;
+      cookies = null;
+      if (err.code !== 'LOGIN_REQUIRED' && err.code !== 'COOKIE_NOT_FOUND') break;
+    }
+  }
+
+  const tip = opened
+    ? `已在 Chrome 打开 ${def.url}，但 ${Math.round(budgetMs / 1000)} 秒内未确认到有效登录态（原有凭据未改动）。完成登录后再点一次「刷新」即可。`
+    : (lastError && lastError.message) || '未读取到 Cookie';
+  return { ok: false, code: (lastError && lastError.code) || 'LOGIN_TIMEOUT', message: tip, def: describeCredential(def) };
+}
+
+// 仅打开站点（用于「打开登录页」按钮），不写入任何凭据
+async function openCredentialSite({ id }) {
+  const def = credentialById(id);
+  if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
+  if (!def.url) throw Object.assign(new Error('该凭据没有可访问的站点地址'), { status: 400 });
+  try {
+    const visit = await visitForCookies(`${new URL(def.url).origin}/`, { visitTimeoutMs: 20000 });
+    return { ok: true, url: visit.finalUrl || def.url, loginRequired: Boolean(visit.loginRequired) };
+  } catch (err) {
+    return { ok: false, url: def.url, message: err.message };
+  }
+}
+
+function saveCredentialManually({ id, value }) {
+  const def = credentialById(id);
+  if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
+  const text = String(value || '').trim();
+  if (!text) throw Object.assign(new Error('凭据内容为空'), { status: 400 });
+  if (def.kind === 'apikey') {
+    if (!def.save(text)) throw Object.assign(new Error('写入失败'), { status: 500 });
+    return { ok: true, message: 'API Key 已保存', def: describeCredential(def) };
+  }
+  // 手动粘贴可能是 Cookie 头、Netscape cookies.txt 或 JSON：统一交给 dinsight 的解析器归一化
+  let header = text;
+  if (def.id === 'dinsight') {
+    if (!def.save(text)) throw Object.assign(new Error('内容里没有可识别的 token / cookie'), { status: 400 });
+    return { ok: true, message: 'Dinsight 凭据已保存', def: describeCredential(def) };
+  }
+  if (text.includes('\t')) {
+    const kvs = [];
+    for (const line of text.split(/\r?\n/)) {
+      if (!line || line.startsWith('#') && !line.startsWith('#HttpOnly_')) continue;
+      const parts = line.replace(/^#HttpOnly_/, '').trimEnd().split('\t');
+      if (parts.length === 7) kvs.push(`${parts[5]}=${parts[6]}`);
+    }
+    if (!kvs.length) throw Object.assign(new Error('没能从 cookies.txt 里解析出 cookie'), { status: 400 });
+    header = kvs.join('; ');
+  } else if (text.startsWith('{')) {
+    try {
+      const data = JSON.parse(text);
+      header = String(data.cookie || data.token || '').trim();
+    } catch {}
+    if (!header) throw Object.assign(new Error('JSON 里没有 cookie 或 token 字段'), { status: 400 });
+  }
+  if (!def.save(header)) throw Object.assign(new Error('写入本地凭据文件失败'), { status: 500 });
+  return { ok: true, message: '凭据已保存', def: describeCredential(def) };
+}
+
+function clearCredential({ id }) {
+  const def = credentialById(id);
+  if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
+  const file = path.join(SHRIMP_DIR, def.file);
+  try { fs.unlinkSync(file); } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  return { ok: true, message: '已清除本地凭据文件', def: describeCredential(def) };
+}
+
+async function probeCredentialById({ id, cookieOverride = null }) {
+  const def = credentialById(id);
+  if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
+  if (!def.probe) return { ok: false, message: '该凭据不支持探活' };
+  return probeCredential(path.join(SHRIMP_DIR, def.file), def.probe.url, def.probe.init, cookieOverride);
 }
 
 // ---------------------------------------------------------------- http -----
@@ -925,6 +1276,7 @@ function buildPage(projects, appItems) {
     <button role="tab" data-tab="logs" aria-selected="false">日志检索</button>
     <button role="tab" data-tab="apollo" aria-selected="false">Apollo 配置</button>
     <button role="tab" data-tab="write" aria-selected="false">写操作</button>
+    <button role="tab" data-tab="credentials" aria-selected="false">凭据</button>
   </nav>
 
   <!-- ============================ 首页 ============================ -->
@@ -966,6 +1318,12 @@ function buildPage(projects, appItems) {
         <p>Apollo 配置改值与发布、ES 文档改/删、Kafka 模拟投递、测试库 DML。全部强制「预检 → 确认」两步，未确认不写入。</p>
         <div class="kw">对应脚本：apollo_modify.js / es_modify.js / kafka_send.js / test_mysql_query.js</div>
         <button class="ghost" data-goto="write">进入写操作 →</button>
+      </div>
+      <div class="homecard">
+        <h3>🔑 凭据台账</h3>
+        <p>一页看全 skill 依赖的全部 Cookie / Token：是否有、上次更新时间、包含哪些 Cookie 名。点「刷新」会让 Chrome 直接跳转对应站点（没登录就是登录页），你登录完凭据自动回读落盘。</p>
+        <div class="kw">对应脚本：credential_relay.js（本地桥接 127.0.0.1:19526）</div>
+        <button class="ghost" data-goto="credentials">管理凭据 →</button>
       </div>
       <div class="homecard">
         <h3>📜 历史任务回看</h3>
@@ -1318,6 +1676,39 @@ function buildPage(projects, appItems) {
       <pre class="out" id="wOut">等待操作…</pre>
     </div>
   </section>
+
+  <!-- ============================ 凭据 ============================ -->
+  <section class="page" id="page-credentials">
+    <div class="card">
+      <h2>凭据台账</h2>
+      <p class="hint" style="margin-top:0">
+        这里只展示「有没有、什么时候更新的、包含哪些 Cookie 名」，<b>不会把 Cookie / Token 的值显示在页面上</b>。
+        本机凭据目录：<code id="credDir">~/.shrimp/skills/live-inspector/</code>
+      </p>
+      <div class="actions" style="margin-top:0">
+        <button id="credReload">重新扫描</button>
+        <button id="credRefreshAll" class="ghost">刷新全部已登录站点</button>
+        <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+          等待登录最长
+          <select id="credWait" style="width:auto;padding:6px 8px">
+            <option value="45000">45 秒</option>
+            <option value="120000" selected>2 分钟</option>
+            <option value="300000">5 分钟</option>
+          </select>
+        </label>
+        <span class="status" id="credStatus"></span>
+      </div>
+      <div class="hint">
+        刷新流程：点「刷新」→ 本地桥接让 Chrome 打开/切换到目标站点 → 若未登录会停在登录页 → 你正常登录 →
+        页面每 3 秒重读一次浏览器的 Cookie，读到即自动写入本机凭据文件并刷新下面的状态，不用再点第二次。
+        若浏览器里已是登录态，则一步直达、不会跳登录页。需要 Chrome 已安装并启用扩展「Leo cookie.txt Locally」。
+      </div>
+    </div>
+    <div class="card">
+      <h2>凭据明细</h2>
+      <div id="credBody" class="muted">加载中…</div>
+    </div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1363,7 +1754,10 @@ function post(url, body) {
 }
 
 // ---------------------------------------------------------------- tabs ----
+const TABS = ['home', 'deploy', 'logs', 'apollo', 'write', 'credentials'];
+
 function showTab(name) {
+  if (!TABS.includes(name)) name = 'home';
   document.querySelectorAll('#tabs button').forEach(a => {
     const on = a.dataset.tab === name;
     a.classList.toggle('active', on);
@@ -1371,6 +1765,12 @@ function showTab(name) {
   });
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
   try { localStorage.setItem('leo.tab', name); } catch (e) {}
+  // #credentials 这类锚点可直接分享 / 收藏到具体 Tab
+  try {
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', name === 'home' ? location.pathname + location.search : '#' + name);
+    }
+  } catch (e) {}
   // 页面隐藏时 scrollHeight 为 0，轮询期间贴底会失效；切回部署页时补一次贴底
   if (name === 'deploy') {
     setTimeout(() => {
@@ -1379,6 +1779,8 @@ function showTab(name) {
       if (el) el.scrollTop = el.scrollHeight;
     }, 30);
   }
+  // 凭据台账每次进入都重新扫描，保证看到的是磁盘上的最新状态
+  if (name === 'credentials') loadCredentials();
 }
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-tab]');
@@ -1654,7 +2056,7 @@ async function refreshCredentialStatus() {
     const line = '内网站点登录态 · Shipwright(构建): ' + (s.ok ? '✅ ' + s.message : '❌ ' + s.message) +
       ' ｜ Cloud(部署): ' + (cl.ok ? '✅ ' + cl.message : '❌ ' + cl.message);
     hint.textContent = line + (s.ok && cl.ok ? '' :
-      '。失效会导致「无法获取构建器」。修复：加载 Leo Chrome 插件（scripts/setup_chrome_ext.sh）后重试，或手动执行 node scripts/ci_deploy.js --set-shipwright-cookie "<cookie>" / --set-cookie "<cookie>"。');
+      '。失效会导致「无法获取构建器」。修复：到「凭据」Tab 点对应条目的「刷新」，Chrome 会打开该站点，登录完自动回读落盘。');
   } catch (e) {
     hint.textContent = '凭据检查失败: ' + e.message;
   }
@@ -2199,12 +2601,220 @@ $('wDbCommit').addEventListener('click', async () => {
   }
 });
 
+// ============================================================== credentials ====
+// 凭据台账：只渲染元信息（有无 / 更新时间 / cookie 名），cookie 值永不出后端
+let credItems = [];
+let credBusy = {};
+let credProbe = {};
+let credDir = '~/.shrimp/skills/live-inspector/';
+let credLoading = false;
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = n => String(n).padStart(2, '0');
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  let ago;
+  if (mins < 1) ago = '刚刚';
+  else if (mins < 60) ago = mins + ' 分钟前';
+  else if (mins < 1440) ago = Math.floor(mins / 60) + ' 小时前';
+  else ago = Math.floor(mins / 1440) + ' 天前';
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+    pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' · ' + ago;
+}
+
+function setCredStatus(text, cls) {
+  const el = $('credStatus');
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function renderCredentials() {
+  const body = $('credBody');
+  if (!credItems.length) { body.className = 'muted'; body.textContent = '暂无凭据登记'; return; }
+  body.className = '';
+  const byGroup = new Map();
+  for (const it of credItems) {
+    if (!byGroup.has(it.group)) byGroup.set(it.group, []);
+    byGroup.get(it.group).push(it);
+  }
+  let html = '';
+  for (const [group, items] of byGroup) {
+    html += '<h3 style="font-size:13px;margin:4px 0 8px;color:var(--muted);font-weight:600">' + escHtml(group) + '</h3>' +
+      '<table style="margin-bottom:20px"><thead><tr><th style="width:270px">平台</th><th style="width:230px">凭据文件</th>' +
+      '<th style="width:150px">状态</th><th style="width:190px">上次更新</th><th>操作</th></tr></thead><tbody>';
+    for (const it of items) {
+      const busy = credBusy[it.id];
+      const dot = it.exists ? '<span class="tag ok">已保存</span>' : '<span class="tag err">缺失</span>';
+      const envTip = it.envOverride ? '<span class="tag warn" title="环境变量优先于本地文件">ENV 覆盖</span>' : '';
+      const pr = credProbe[it.id];
+      const probeTag = !pr ? '' : (pr.busy ? ' <span class="tag">探活中…</span>'
+        : (pr.ok ? ' <span class="tag ok" title="' + escHtml(pr.message) + '">登录态正常</span>'
+          : ' <span class="tag err" title="' + escHtml(pr.message) + '">需重新登录</span>'));
+      const names = it.names && it.names.length
+        ? '<div class="mono muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' +
+          escHtml(it.names.join(', ')) + '">' + escHtml(it.names.join(', ')) + '</div>'
+        : '';
+      html += '<tr><td><b>' + escHtml(it.label) + '</b>' +
+        (it.url ? '<div class="mono muted" style="font-size:11px">' + escHtml(it.url) + '</div>' : '') +
+        (it.note ? '<div class="hint" style="margin-top:4px">' + escHtml(it.note) + '</div>' : '') + '</td>' +
+        '<td class="mono">' + escHtml(it.file) + (it.kind === 'apikey' ? ' <span class="tag">API Key</span>' : '') + names + '</td>' +
+        '<td>' + dot + probeTag + ' ' + envTip + (it.count ? '<div class="hint" style="margin-top:4px">' + it.count + ' 个 Cookie</div>' : '') + '</td>' +
+        '<td class="hint" style="margin:0">' + escHtml(fmtTime(it.updatedAt)) + '</td>' +
+        '<td><div style="display:flex;gap:6px;flex-wrap:nowrap">' +
+        (it.probeSupported ? '<button class="sm" data-cred-probe="' + it.id + '"' + (busy ? ' disabled' : '') + '>探活</button>' : '') +
+        (it.kind === 'apikey' ? '' :
+          '<button class="sm" data-cred-refresh="' + it.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? '等待中…' : '刷新') + '</button>' +
+          '<button class="sm ghost" data-cred-open="' + it.id + '" title="只打开站点，不写入凭据">登录页</button>') +
+        '<button class="sm ghost" data-cred-save="' + it.id + '" title="手动粘贴 Cookie / cookies.txt / JSON">粘贴</button>' +
+        '<button class="sm ghost" data-cred-clear="' + it.id + '"' + (it.exists ? '' : ' disabled') + '>清除</button>' +
+        '</div></td></tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '<div class="hint">凭据目录：<code>' + escHtml(credDir) + '</code>　·　值为空说明浏览器里没读到该站点登录态。</div>';
+  body.innerHTML = html;
+}
+
+async function loadCredentials() {
+  if (credLoading) return;
+  credLoading = true;
+  setCredStatus('扫描中…', 'running');
+  try {
+    const r = await api('/api/credential-list');
+    credItems = r.items || [];
+    credDir = r.dir || credDir;
+    $('credDir').textContent = credDir;
+    renderCredentials();
+    const missing = credItems.filter(x => !x.exists).length;
+    setCredStatus(missing ? missing + ' 项缺失 / ' + credItems.length + ' 项 · 刷新即自动落盘' : '全部已保存', missing ? 'running' : 'success');
+  } catch (e) {
+    setCredStatus('扫描失败: ' + e.message, 'error');
+  } finally {
+    credLoading = false;
+  }
+}
+
+function patchCred(def) {
+  if (!def) return;
+  const i = credItems.findIndex(x => x.id === def.id);
+  if (i >= 0) credItems[i] = def;
+  renderCredentials();
+}
+
+async function refreshOne(id) {
+  if (credBusy[id]) return;
+  const it = credItems.find(x => x.id === id);
+  credBusy[id] = true;
+  delete credProbe[id];
+  renderCredentials();
+  setCredStatus('正在读取 ' + (it ? it.label : id) + ' 的登录态…浏览器会自动切到该站点', 'running');
+  try {
+    const r = await post('/api/credential/refresh', { id, waitMs: Number($('credWait').value) || 120000 });
+    patchCred(r.def);
+    if (r.ok) {
+      setCredStatus((it ? it.label : id) + ' 已刷新：' + r.message, 'success');
+      toast('凭据已刷新', 'ok');
+    } else {
+      setCredStatus((it ? it.label : id) + ' 未刷新：' + r.message, 'running');
+      toast(r.message, 'err');
+    }
+  } catch (e) {
+    setCredStatus('刷新失败: ' + e.message, 'error');
+    toast(e.message, 'err');
+  } finally {
+    credBusy[id] = false;
+    renderCredentials();
+  }
+}
+
+$('credReload').addEventListener('click', loadCredentials);
+
+$('credRefreshAll').addEventListener('click', async () => {
+  const targets = credItems.filter(x => x.exists && x.kind !== 'apikey').map(x => x.id);
+  if (!targets.length) { toast('没有已保存的 Cookie 凭据可刷新', 'err'); return; }
+  if (!confirm('将依次刷新 ' + targets.length + ' 个站点的登录态，过程中 Chrome 会不断打开页面，确认继续？')) return;
+  for (const id of targets) await refreshOne(id);
+  setCredStatus('批量刷新完成', 'success');
+});
+
+$('credBody').addEventListener('click', async e => {
+  const probe = e.target.closest('[data-cred-probe]');
+  if (probe) {
+    const id = probe.dataset.credProbe;
+    credProbe[id] = { busy: true };
+    renderCredentials();
+    try {
+      const r = await post('/api/credential/probe', { id });
+      credProbe[id] = { ok: Boolean(r.ok), message: r.message || '' };
+      toast((r.ok ? '✅ ' : '❌ ') + (r.message || ''), r.ok ? 'ok' : 'err');
+    } catch (err) {
+      credProbe[id] = { ok: false, message: err.message };
+      toast(err.message, 'err');
+    }
+    renderCredentials();
+    return;
+  }
+  const refresh = e.target.closest('[data-cred-refresh]');
+  if (refresh) return refreshOne(refresh.dataset.credRefresh);
+
+  const open = e.target.closest('[data-cred-open]');
+  if (open) {
+    const id = open.dataset.credOpen;
+    setCredStatus('正在让 Chrome 打开站点…', 'running');
+    try {
+      const r = await post('/api/credential/open', { id });
+      setCredStatus(r.ok ? '已打开 ' + r.url + (r.loginRequired ? '（需要登录）' : '（已是登录态）') : '打开失败: ' + (r.message || ''), r.ok ? 'success' : 'error');
+    } catch (err) { setCredStatus('打开失败: ' + err.message, 'error'); }
+    return;
+  }
+
+  const save = e.target.closest('[data-cred-save]');
+  if (save) {
+    const id = save.dataset.credSave;
+    const it = credItems.find(x => x.id === id) || {};
+    const label = it.label || id;
+    const tip = it.kind === 'apikey'
+      ? '粘贴 ARMS API Key：'
+      : '粘贴 ' + label + ' 的凭据（Cookie 头 / cookies.txt / JSON 均可）：';
+    const value = prompt(tip + String.fromCharCode(10) + '注意：内容只写入本机文件，不会经过网络。', '');
+    if (value === null || !value.trim()) return;
+    try {
+      const r = await post('/api/credential/save', { id, value });
+      patchCred(r.def);
+      toast('已保存', 'ok');
+      setCredStatus(label + ' ' + (r.message || '已保存'), 'success');
+    } catch (err) { toast(err.message, 'err'); }
+    return;
+  }
+
+  const clear = e.target.closest('[data-cred-clear]');
+  if (clear) {
+    const id = clear.dataset.credClear;
+    const it = credItems.find(x => x.id === id) || {};
+    if (!confirm('确定清除本机凭据文件 ' + (it.file || id) + '？清除后相关功能会提示未登录。')) return;
+    try {
+      const r = await post('/api/credential/clear', { id });
+      patchCred(r.def);
+      toast('已清除', 'ok');
+      setCredStatus((it.label || id) + ' ' + (r.message || '已清除'), 'success');
+    } catch (err) { toast(err.message, 'err'); }
+  }
+});
+
 // ================================================================== init ====
 async function init() {
   try {
-    const saved = localStorage.getItem('leo.tab');
+    // 地址栏 hash 优先于上次记忆：/ 或 #home 也能显式回首页
+    const hash = (location.hash || '').replace(/^#/, '');
+    const saved = hash || localStorage.getItem('leo.tab');
     if (saved) showTab(saved);
   } catch (e) {}
+  window.addEventListener('hashchange', () => {
+    const name = (location.hash || '').replace(/^#/, '');
+    if (name) showTab(name);
+  });
   try {
     const data = await api('/api/initial');
     if (data.lastProject) {
@@ -2348,6 +2958,36 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && route === '/api/jobs') {
       return json(res, 200, { jobs: listPersistedJobs() });
+    }
+
+    if (req.method === 'GET' && route === '/api/credential-list') {
+      return json(res, 200, listCredentials());
+    }
+
+    if (req.method === 'POST' && route === '/api/credential/open') {
+      const b = await readBody(req);
+      return json(res, 200, await openCredentialSite({ id: b.id }));
+    }
+
+    if (req.method === 'POST' && route === '/api/credential/refresh') {
+      const b = await readBody(req);
+      const r = await refreshCredential({ id: b.id, waitMs: b.waitMs });
+      return json(res, 200, r);
+    }
+
+    if (req.method === 'POST' && route === '/api/credential/save') {
+      const b = await readBody(req);
+      return json(res, 200, saveCredentialManually({ id: b.id, value: b.value }));
+    }
+
+    if (req.method === 'POST' && route === '/api/credential/clear') {
+      const b = await readBody(req);
+      return json(res, 200, clearCredential({ id: b.id }));
+    }
+
+    if (req.method === 'POST' && route === '/api/credential/probe') {
+      const b = await readBody(req);
+      return json(res, 200, await probeCredentialById({ id: b.id }));
     }
 
     if (req.method === 'GET' && route === '/api/credentials') {
