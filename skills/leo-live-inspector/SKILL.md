@@ -85,6 +85,7 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
 | **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 | [dinsight-query-guide.md](references/dinsight-query-guide.md) |
 | **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
+| **“查下钥匙箱 860734086841437 腾讯云状态与最新报文”** | `node scripts/tencent_iot_query.js 860734086841437 -n 5` | 设备在线状态、核心已订阅 Topic 报文解码与流转明细 | [tencent-iot-guide.md](references/tencent-iot-guide.md) |
 
 ---
 
