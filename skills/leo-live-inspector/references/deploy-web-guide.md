@@ -22,10 +22,12 @@
 | `--open` | - | 启动后用系统默认浏览器自动打开控制台 |
 
 ```bash
-node scripts/console.js                   # 推荐：幂等启动并打开页面（默认 6886）
-node scripts/deploy_web.js --open          # 启动并打开页面
+node scripts/console.js                   # 推荐：幂等启动，并在系统默认浏览器里打开页面（默认 6886）
+node scripts/deploy_web.js --open          # 仅一个实例时可用；端口被占用会 EADDRINUSE 退出
 node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的实例冲突
 ```
+
+**打开浏览器是默认行为**：`console.js` 起完服务会调系统默认浏览器（macOS `open` / Windows `start` / Linux `xdg-open`）把页面弹出来，不需要用户再手点一次地址。`--json` 输出里的 `opened` 取自该命令的真实退出码，失败时附 `openError`——不要把 `opened:false` 当成成功来报。
 
 ### 启动器 `console.js`（推荐）
 
@@ -33,11 +35,12 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 
 | 场景 | 行为 |
 | :--- | :--- |
-| 端口已有控制台在跑，且代码一致 | **复用**，只打开页面，不再起第二个 |
+| 端口已有控制台在跑，且代码一致 | **复用**，直接打开浏览器，不再起第二个 |
 | 端口空闲 | 后台拉起 `deploy_web.js`（`detached`，脱离进程组），等 `/api/initial` 就绪后打开浏览器 |
 | 端口已有控制台在跑，但跑的是旧代码 | **拒绝静默复用**（退出码 2），提示用 `--restart` |
 | 端口被别的程序占用 | 明确报错并提示换端口（会校验 `/api/initial` 确认是不是本控制台） |
-| `--restart` | 确认进程是 `deploy_web.js` 后停掉，再用当前磁盘代码拉起 |
+| `--restart` | 确认进程是 `deploy_web.js` 后停掉，再用当前磁盘代码拉起并打开浏览器 |
+| `--no-open` | 只起服务，不弹浏览器（用户明确要求时才用） |
 | `--stop` | 按记录的 PID 停掉本脚本启动的实例 |
 
 ```bash

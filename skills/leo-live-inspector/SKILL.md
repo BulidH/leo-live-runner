@@ -86,24 +86,28 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 | [database-guide.md](references/database-guide.md) |
 | **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
 | **“把当前分支构建部署到测试环境”** | **阶段 1 (Pre-flight 预审)**：识别分支与目标泳道，推送部署确认卡片；<br>**阶段 2 (确认后)**：执行 `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
-| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、ONES 研发 Tab（排期/需求/缺陷查询 + 两阶段写入）、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
+| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/console.js`（自动打开浏览器） | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、ONES 研发 Tab（排期/需求/缺陷查询 + 两阶段写入）、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
 
 ### 🖥️ 控制台启动口令（高频，必须按此执行）
 
-用户说下面**任意一种**，都视为「要打开本地控制台」，**直接后台执行 `node scripts/console.js`**，不要反问、不要让他自己敲命令：
+用户说下面**任意一种**，都视为「要把控制台打开给我看」，**直接执行 `node scripts/console.js`，让它把系统默认浏览器打开到这个页面**，不要反问、不要让他自己敲命令、也不要用「地址给你了你自己开」代替：
 
 > 启动服务 · 打开控制台 · 打开部署平台 · 打开本地服务 · 打开控制台页面 · 起一下控制台 · 把控制台开起来 · 打开部署控制台 · 打开 6886
 
+**默认行为就是打开浏览器**（`open` 默认 true，走系统默认浏览器 `open`/`xdg-open`/`start`）。「打开」这个词的落点必须是**屏幕上的页面真的弹出来**，不是打印一个 URL 就算完事。
+
 | 用户可能说 | 执行 |
 | :--- | :--- |
-| 启动服务 / 打开控制台 / 打开部署平台 / 打开本地服务 | `node scripts/console.js` |
+| 启动服务 / 打开控制台 / 打开部署平台 / 打开本地服务 | `node scripts/console.js` ← **会自动打开浏览器** |
 | 换端口打开 | `node scripts/console.js --port 6901` |
-| 只启动不弹浏览器 | `node scripts/console.js --no-open` |
+| 不要弹浏览器，我自己开 | `node scripts/console.js --no-open`（仅在用户明确说「别弹窗口」时用） |
 | 关掉控制台 | `node scripts/console.js --stop` |
-| 「开了还是旧页面 / 看不到新功能」 | `node scripts/console.js --restart` |
-| 直接要具体 Tab | `node scripts/console.js --open` 后把 `http://127.0.0.1:6886/#credentials` 这类锚点发给用户 |
+| 「开了还是旧页面 / 看不到新功能」 | `node scripts/console.js --restart`（同样会打开浏览器） |
+| 直接要具体 Tab | `node scripts/console.js` 打开后，把 `http://127.0.0.1:6886/#credentials` 这类锚点告诉用户 |
 
 **为什么用 `console.js` 而不是直接跑 `deploy_web.js`**：前者是幂等的。端口已有实例就复用并打开页面；没有才在后台拉起（脱离当前进程组，不会被 run 结束带走），然后等就绪再开浏览器。直接跑 `deploy_web.js` 在端口被占用时会报 `EADDRINUSE` 退出。
+
+**浏览器打开失败要如实说**：`--json` 的 `opened` 字段来自 `open` 的真实退出码，`openError` 给出原因。`opened:false` 时不要声称「已打开」，要把地址给用户并说明原因。
 
 **版本自检（重要）**：`deploy_web.js` 的页面与路由在启动时固化进内存，**改完代码不重启就不会生效**。所以 `console.js` 会比对「端口上正在跑的代码指纹」与「磁盘上的代码指纹」（`/api/initial` 返回的 `buildId`）：
 
@@ -111,11 +115,11 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | :--- | :--- |
 | 指纹一致 | ♻️ 复用，正常打开 |
 | 指纹不一致（旧进程） | ⚠️ **拒绝静默复用**，退出码 2，提示用 `--restart` |
-| `--restart` | 校验进程确实是 `deploy_web.js` 后停掉，再用新代码拉起 |
+| `--restart` | 校验进程确实是 `deploy_web.js` 后停掉，再用新代码拉起，然后打开浏览器 |
 
 用户反馈「改了没变化 / 看不到新功能」时，**第一反应就是 `--restart`**，而不是让用户清浏览器缓存。
 
-**交付时必须告诉用户的三件事**：URL、PID、版本指纹、停止命令。日志路径 `~/.shrimp/skills/live-inspector/console.log`。
+**回复里要交代的信息**：一句「已在浏览器打开」+ URL（方便他再点开），附 PID / 版本指纹 / 停止命令。日志路径 `~/.shrimp/skills/live-inspector/console.log`。
 
 **边界**：这是**按需启动**，不注册开机自启、不装守护进程；系统重启后自然消失。用户问「会不会自动启动」时，答案是不会——必须有人（人或 AI）执行命令。
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
@@ -195,7 +199,7 @@ flowchart TD
 - **内生中继机制**：默认复用本地 `~/.shrimp/skills/live-inspector/` 下的缓存凭据；仅在凭据缺失或明确鉴权失败时，通过 `127.0.0.1:19526` 本地桥接从已加载的 Chrome 扩展（**Leo cookie.txt Locally**，版本 ≥ 1.3.15）静默同步；
 - **平台支持范围**：服务云 (`cloud_token.json`)、Shipwright (`shipwright_cookie.json`)、FeCI (`feci_cookie.json`)、Apollo Portal (`test_apollo_cookie.json`)、Luke 权限 (`luke_cookie.json`)、UC 组织 (`test_uc_cookie.json`)、灯塔 ARMS (`arms_api_key.json` / `arms_cookie.json`)、ES 搜索云 (`search_cookie.json`)、白鸽网关 (`baige_cookie.json`)、Dinsight、FAST (`fast_cookie.json`)、ONES 研发管理 (`ones_cookie.json`)；
 - **独立中继工具**：可使用 `node scripts/credential_relay.js <targetUrl>` 单点测试与同步凭据（严禁调用任何外部自动化浏览器）；
-- **可视化集中管理**：`node scripts/deploy_web.js --open` 打开的「凭据」Tab 可一屏看到全部凭据的保存状态 / 更新时间 / Cookie 名，并对任意条目点「刷新」→ 已登录则静默落盘，未登录才在**用户当前窗口打开一个普通标签页**（不建标签组、不另开窗口，也不碰用户已有的标签页），登录完成后自动回读落盘（页面只显示元信息，不显示凭据值）。
+- **可视化集中管理**：`node scripts/console.js` 会在系统默认浏览器打开的「凭据」Tab 里一屏看到全部凭据的保存状态 / 更新时间 / Cookie 名，并对任意条目点「刷新」→ 已登录则静默落盘，未登录才在**用户当前窗口打开一个普通标签页**（不建标签组、不另开窗口，也不碰用户已有的标签页），登录完成后自动回读落盘（页面只显示元信息，不显示凭据值）。
 
 ---
 

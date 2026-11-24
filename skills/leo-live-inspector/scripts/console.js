@@ -31,7 +31,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { computeBuildId } from './common/build_id.js';
 
@@ -95,16 +95,26 @@ function probeConsole(port, timeoutMs = 1200) {
   });
 }
 
+/**
+ * 用系统默认浏览器打开页面。
+ *
+ * 用 spawnSync 而不是 spawn：`open` / `xdg-open` 启动浏览器后就返回，不会等到
+ * 浏览器退出，所以同步等它的退出码既不会卡住，又能知道到底有没有打开成功。
+ * 之前用 spawn + 空的 error 处理器，无论成功失败都返回 true，等于没校验。
+ */
 function openBrowser(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
-    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
-    child.on('error', () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
+    const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'ignore', 'pipe'] });
+    if (r.error) return { opened: false, error: r.error.message };
+    if (r.status !== 0) {
+      const detail = String(r.stderr || '').trim().split('\n')[0];
+      return { opened: false, error: detail || `退出码 ${r.status}` };
+    }
+    return { opened: true, error: '' };
+  } catch (err) {
+    return { opened: false, error: err.message };
   }
 }
 
@@ -272,7 +282,7 @@ async function main() {
       fs.rmSync(pidFileFor(opts.port), { force: true });
     } else {
       // 版本一致 → 直接复用
-      if (opts.open) openBrowser(url);
+      const opened = opts.open ? openBrowser(url) : { opened: false, error: '' };
       const out = {
         ok: true,
         action: 'reuse',
@@ -281,14 +291,16 @@ async function main() {
         pid: existing.pid,
         buildId: runningId,
         message: `控制台已在 ${opts.port} 端口运行（${runningId}），直接打开页面`,
-        opened: opts.open,
+        opened: opened.opened,
         stop: `node scripts/console.js --stop --port ${opts.port}`
       };
+      if (opened.error) out.openError = opened.error;
       if (opts.json) console.log(JSON.stringify(out, null, 2));
       else {
         console.log(`\n♻️  控制台已在运行：${url}`);
         console.log(`   版本: ${runningId}`);
-        if (opts.open) console.log('   已在浏览器中打开。');
+        if (opened.opened) console.log('   已在浏览器中打开。');
+        else if (opts.open) console.log(`   ⚠️  浏览器没能自动打开（${opened.error}），请手动访问上面的地址。`);
         console.log('');
       }
       return;
@@ -330,7 +342,7 @@ async function main() {
   try { fs.writeFileSync(pidFileFor(opts.port), String(child.pid)); } catch { /* 记录 PID 失败不影响启动 */ }
   fs.closeSync(logFd);
 
-  if (opts.open) openBrowser(url);
+  const opened = opts.open ? openBrowser(url) : { opened: false, error: '' };
 
   const out = {
     ok: true,
@@ -341,10 +353,11 @@ async function main() {
     buildId,
     log: LOG_FILE,
     pidFile: pidFileFor(opts.port),
-    opened: opts.open,
+    opened: opened.opened,
     stop: `node scripts/console.js --stop --port ${opts.port}`,
     message: '控制台已启动（按需启动，不随开机自启）'
   };
+  if (opened.error) out.openError = opened.error;
   if (opts.json) console.log(JSON.stringify(out, null, 2));
   else {
     console.log(`\n🌐 控制台已启动：${url}`);
@@ -352,7 +365,8 @@ async function main() {
     console.log(`   版本: ${buildId}`);
     console.log(`   日志: ${LOG_FILE}`);
     console.log(`   停止: node scripts/console.js --stop --port ${opts.port}`);
-    if (opts.open) console.log('   已在浏览器中打开。');
+    if (opened.opened) console.log('   已在浏览器中打开。');
+    else if (opts.open) console.log(`   ⚠️  浏览器没能自动打开（${opened.error}），请手动访问上面的地址。`);
     console.log('');
   }
 }
