@@ -48,7 +48,7 @@ node scripts/console.js --stop             # 停止
 node scripts/console.js --json             # 结构化输出（含 url/pid/buildId/log/stop）
 ```
 
-产物：PID 记在 `~/.shrimp/skills/live-inspector/console.pid`，日志写到同目录 `console.log`。
+产物：PID 记在 `~/.shrimp/skills/live-inspector/console.pid`（非默认端口为 `console-<port>.pid`），日志写到同目录 `console.log`。PID 文件按端口分开，避免同时开多个实例时 `--stop --port` 停错进程。
 
 ### 版本指纹与「改了没生效」
 

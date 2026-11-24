@@ -43,7 +43,12 @@ const DEFAULT_PORT = 6886;
 const HOST = '127.0.0.1';
 const STATE_DIR = path.join(os.homedir(), '.shrimp', 'skills', 'live-inspector');
 const LOG_FILE = path.join(STATE_DIR, 'console.log');
-const PID_FILE = path.join(STATE_DIR, 'console.pid');
+// PID 按端口分开记：同时开 6886 和 6901 时，同一个 pid 文件会互相覆盖，
+// --stop --port 6886 就可能去停 6901 的进程。
+const pidFileFor = port =>
+  port === DEFAULT_PORT
+    ? path.join(STATE_DIR, 'console.pid')
+    : path.join(STATE_DIR, `console-${port}.pid`);
 
 function parseArgs(argv = process.argv.slice(2)) {
   const opts = { port: DEFAULT_PORT, open: true, stop: false, restart: false, json: false, timeoutMs: 20000 };
@@ -103,9 +108,9 @@ function openBrowser(url) {
   }
 }
 
-function readPid() {
+function readPid(port) {
   try {
-    const pid = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
+    const pid = Number(fs.readFileSync(pidFileFor(port), 'utf8').trim());
     return Number.isFinite(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
@@ -195,11 +200,17 @@ async function main() {
 
   // ---- stop ----
   if (opts.stop) {
-    const pid = readPid();
+    let pid = readPid(opts.port);
+    // 记录丢失（旧版本启动 / 手工启动 / 文件被删）时，退化为反查端口，
+    // 但同样要求进程确实是 deploy_web.js，绝不按端口盲杀
     if (!pid || !pidAlive(pid)) {
+      const found = findPidOnPort(opts.port);
+      pid = found && isOurConsoleProcess(found) ? found : null;
+    }
+    if (!pid) {
       const p = await probeConsole(opts.port);
       const msg = p.isConsole
-        ? `端口 ${opts.port} 上有控制台在运行，但不是本脚本启动的（没有记录 PID），未做处理。请手动停止该进程。`
+        ? `端口 ${opts.port} 上有控制台在运行，但无法确认其进程是本控制台，未做处理。\n  请手动确认：lsof -nP -iTCP:${opts.port} -sTCP:LISTEN`
         : '没有由本脚本启动的控制台实例。';
       if (opts.json) console.log(JSON.stringify({ ok: !p.isConsole, action: 'stop', message: msg }, null, 2));
       else console.log(`\n${msg}\n`);
@@ -207,7 +218,7 @@ async function main() {
     }
     try {
       await stopPid(pid);
-      fs.rmSync(PID_FILE, { force: true });
+      fs.rmSync(pidFileFor(opts.port), { force: true });
       if (opts.json) console.log(JSON.stringify({ ok: true, action: 'stop', pid, message: '已停止' }, null, 2));
       else console.log(`\n✅ 已停止控制台（PID ${pid}）\n`);
     } catch (err) {
@@ -219,7 +230,7 @@ async function main() {
   }
 
   // 先按记录判断是不是本脚本启动的实例（用来判断「能不能安全停掉」）
-  const recordPID = readPid();
+  const recordPID = readPid(opts.port);
   const recordValid = pidAlive(recordPID) ? recordPID : null;
 
   // ---- 已在运行？----
@@ -258,7 +269,7 @@ async function main() {
         return;
       }
       await stopPid(targetPid);
-      fs.rmSync(PID_FILE, { force: true });
+      fs.rmSync(pidFileFor(opts.port), { force: true });
     } else {
       // 版本一致 → 直接复用
       if (opts.open) openBrowser(url);
@@ -316,7 +327,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  try { fs.writeFileSync(PID_FILE, String(child.pid)); } catch { /* 记录 PID 失败不影响启动 */ }
+  try { fs.writeFileSync(pidFileFor(opts.port), String(child.pid)); } catch { /* 记录 PID 失败不影响启动 */ }
   fs.closeSync(logFd);
 
   if (opts.open) openBrowser(url);
@@ -329,7 +340,7 @@ async function main() {
     pid: child.pid,
     buildId,
     log: LOG_FILE,
-    pidFile: PID_FILE,
+    pidFile: pidFileFor(opts.port),
     opened: opts.open,
     stop: `node scripts/console.js --stop --port ${opts.port}`,
     message: '控制台已启动（按需启动，不随开机自启）'
