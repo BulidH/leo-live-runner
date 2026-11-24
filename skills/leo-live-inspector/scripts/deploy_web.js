@@ -823,7 +823,10 @@ function buildPage(projects) {
   </div>
 
   <div class="card">
-    <div class="field" style="margin-bottom:10px"><label>执行日志</label></div>
+    <div class="field" style="margin-bottom:10px;flex-direction:row;align-items:center;justify-content:space-between">
+      <label>执行日志</label>
+      <span class="hint" id="logFollow" style="margin:0;display:none">已暂停自动跟随 · <a href="#" id="btnFollow" style="color:var(--accent)">回到最新</a></span>
+    </div>
     <pre id="log">等待操作…</pre>
   </div>
 </div>
@@ -1144,6 +1147,8 @@ $('btnDeploy').addEventListener('click', async () => {
 
   currentProject = project;
   await saveSelection();
+  logStick = true;
+  updateFollowHint();
   $('log').textContent = '任务提交中…';
   let job;
   try {
@@ -1163,13 +1168,61 @@ $('btnDeploy').addEventListener('click', async () => {
   startPolling(job.id);
 });
 
+// 日志区「智能跟随」：只有用户停留在底部时才自动滚到底。
+// 用户往上翻看历史日志时停止跟随，回到底部附近（STICK_THRESHOLD 像素内）后自动恢复。
+const STICK_THRESHOLD = 48;
+let logStick = true; // 是否继续跟随日志尾部
+
+function isLogAtBottom() {
+  const el = $('log');
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD;
+}
+
+function updateFollowHint() {
+  const tip = $('logFollow');
+  if (!tip) return;
+  tip.style.display = logStick ? 'none' : 'inline';
+}
+
+// 用户滚动日志区：离开底部就停止跟随，回到底部附近恢复
+$('log').addEventListener('scroll', () => {
+  const stick = isLogAtBottom();
+  if (stick !== logStick) {
+    logStick = stick;
+    updateFollowHint();
+  }
+});
+
+// 「回到最新」：恢复跟随并立刻滚到底
+$('btnFollow').addEventListener('click', e => {
+  e.preventDefault();
+  logStick = true;
+  updateFollowHint();
+  const el = $('log');
+  el.scrollTop = el.scrollHeight;
+});
+
+// 用 textContent 整体重写会重置滚动位置与选区，改为仅在有变化时更新并保留视口
+function setLogText(el, text) {
+  if (el.textContent === text) return false;
+  if (logStick) {
+    el.textContent = text;
+    el.scrollTop = el.scrollHeight;
+  } else {
+    // 用户正在翻看历史：新增日志都在末尾，保持 scrollTop 不变即可让视口纹丝不动
+    const keep = el.scrollTop;
+    el.textContent = text;
+    el.scrollTop = keep;
+  }
+  return true;
+}
+
 function startPolling(jobId) {
   if (pollTimer) clearInterval(pollTimer);
   const tick = async () => {
     try {
       const job = await api('/api/job?id=' + encodeURIComponent(jobId));
-      $('log').textContent = job.log || '';
-      $('log').scrollTop = $('log').scrollHeight;
+      setLogText($('log'), job.log || '');
       if (job.status === 'running') {
         setStatus('执行中…', 'running');
       } else {
@@ -1207,6 +1260,10 @@ async function init() {
       const last = jobs[0];
       const job = await api('/api/job?id=' + encodeURIComponent(last.id));
       $('log').textContent = '最近任务 [' + last.project + '] ' + last.devBranch + ' → ' + last.qaBranch + ' (' + (last.modeLabel || last.mode) + ') · ' + last.status + String.fromCharCode(10, 10) + (job.log || '');
+      // 恢复历史日志后重置为跟随并贴底，便于直接看到最新进度
+      logStick = true;
+      updateFollowHint();
+      $('log').scrollTop = $('log').scrollHeight;
       setStatus(last.status === 'success' ? '上次执行成功' : (last.status === 'running' ? '上次任务仍在执行' : '上次执行失败'), last.status === 'success' ? 'success' : (last.status === 'running' ? 'running' : 'error'));
     }
   } catch {}
