@@ -704,7 +704,122 @@ async function readBody(req) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-function buildPage(projects) {
+// ----------------------------------------------------- 脚本执行与结果解析 ----
+// 页面上的「日志检索 / Apollo / 写操作」都复用 skill 既有脚本，
+// 统一以 --json 输出结构化结果，避免在页面里重建一套接口。
+
+const SCRIPTS = {
+  testLog: path.join(__dirname, 'test_log_query.js'),
+  fastLog: path.join(__dirname, 'fast_query.js'),
+  apolloQuery: path.join(__dirname, 'apollo_query.js'),
+  apolloHistory: path.join(__dirname, 'apollo_history.js'),
+  apolloModify: path.join(__dirname, 'apollo_modify.js'),
+  esModify: path.join(__dirname, 'es_modify.js'),
+  kafkaSend: path.join(__dirname, 'kafka_send.js'),
+  mysqlQuery: path.join(__dirname, 'test_mysql_query.js')
+};
+
+// 跑一个脚本，返回 {ok, code, stdout, stderr, json}
+// timeoutMs 兜底，避免内网接口卡住把页面请求一起挂死
+function runScript(script, args, timeoutMs = 180_000) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [script, ...args], {
+      cwd: SKILL_ROOT,
+      env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' }
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGKILL'); } catch {}
+      resolve({ ok: false, code: -1, stdout, stderr: stderr + `\n[超时 ${Math.round(timeoutMs / 1000)}s，已终止]`, json: null });
+    }, timeoutMs);
+    child.stdout.on('data', d => stdout += d.toString());
+    child.stderr.on('data', d => stderr += d.toString());
+    child.on('error', err => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, code: -1, stdout, stderr: stderr + err.message, json: null });
+    });
+    child.on('close', code => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: code === 0, code: code ?? -1, stdout, stderr, json: extractJson(stdout) });
+    });
+  });
+}
+
+// 脚本会把提示信息混在 stdout 里，这里挑出第一段可解析的 JSON
+function extractJson(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  try { return JSON.parse(s); } catch {}
+  for (let start = 0; start < s.length; start++) {
+    if (s[start] !== '{' && s[start] !== '[') continue;
+    // 从候选起点做括号配对，配对不上说明这段不是完整 JSON，跳到下一个起点
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (inStr) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(s.slice(start, i + 1)); } catch {}
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 服务名候选清单：catalog 里的主键与别名都可直接作为脚本入参，
+// 因此全部列出（去掉 `xxx:prod` 这类索引变体），让页面里能按习惯写法搜索
+function listAppItems() {
+  const catalog = loadServiceCatalog();
+  const out = [];
+  for (const key of Object.keys(catalog)) {
+    if (key.includes(':')) continue;
+    out.push(key);
+  }
+  return [...new Set(out)].sort((a, b) => a.localeCompare(b));
+}
+
+// 写操作统一返回体：既给前端 JSON，也保留原文便于排查
+function scriptResult(res, r, okText) {
+  if (!r.ok && !r.json) {
+    return json(res, 200, {
+      ok: false,
+      error: (r.stderr || r.stdout || '').trim() || `脚本退出码 ${r.code}`,
+      stdout: r.stdout,
+      stderr: r.stderr
+    });
+  }
+  // 脚本自己判定失败时也会打 JSON（如 error 字段），这里统一透传
+  const failed = r.json && (r.json.error || r.json.success === false);
+  return json(res, 200, {
+    ok: !failed && r.ok,
+    json: r.json,
+    stdout: r.stdout,
+    stderr: r.stderr,
+    message: okText || ''
+  });
+}
+
+function buildPage(projects, appItems) {
   // 项目清单内嵌到页面：下拉永远展开全量，不做输入过滤
   const projectItems = projects.map(p => {
     const repo = String(p.git || '').replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/, '');
@@ -716,123 +831,500 @@ function buildPage(projects) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>测试环境 · 合并 QA 并部署</title>
+<title>Leo Live Inspector 控制台</title>
 <style>
   :root { --bg:#0e1116; --panel:#171b22; --panel2:#1e242d; --border:#2b333f; --fg:#e6edf3; --muted:#8b97a7; --accent:#3b82f6; --accent2:#2563eb; --ok:#22c55e; --err:#ef4444; --warn:#f59e0b; }
   * { box-sizing: border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--fg); }
-  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
-  header { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  .wrap { max-width:1180px; margin:0 auto; padding:24px 20px 70px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
   header h1 { font-size:19px; margin:0; font-weight:650; letter-spacing:.3px; }
-  .sub { color:var(--muted); font-size:13px; margin:0 0 22px; }
+  .badge { font-size:11px; color:var(--warn); border:1px solid rgba(245,158,11,.4); background:rgba(245,158,11,.1); border-radius:20px; padding:2px 10px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 8px var(--ok); display:inline-block; }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:20px; overflow-x:auto; position:sticky; top:0; z-index:20; background:var(--bg); }
+  .tabs button { padding:10px 18px; font-size:14px; color:var(--muted); background:transparent; border:none; border-radius:0; border-bottom:2px solid transparent; white-space:nowrap; }
+  .tabs button:hover { color:var(--fg); border-color:transparent; border-bottom-color:var(--border); }
+  .tabs button.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  .page { display:none; }
+  .page.active { display:block; }
   .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px 18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 14px; font-weight:650; }
   .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
-  .field { display:flex; flex-direction:column; gap:6px; }
+  .split { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:16px; align-items:start; }
+  .field { display:flex; flex-direction:column; gap:6px; min-width:0; }
   .field label { font-size:12px; color:var(--muted); letter-spacing:.4px; }
-  input, select { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--fg); font-size:14px; outline:none; }
-  input:focus, select:focus { border-color:var(--accent); }
+  input, select, textarea { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--fg); font-size:14px; outline:none; font-family:inherit; }
+  input:focus, select:focus, textarea:focus { border-color:var(--accent); }
   input[readonly] { color:var(--muted); }
+  textarea { resize:vertical; min-height:70px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.5; }
   .row { display:flex; gap:8px; align-items:flex-end; }
-  .row input { flex:1; }
+  .row > input { flex:1; }
   .combo { position:relative; }
   .combo-list { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 4px); max-height:280px; overflow:auto; background:var(--panel2); border:1px solid var(--border); border-radius:8px; box-shadow:0 14px 34px rgba(0,0,0,.5); }
   .combo-item { padding:8px 12px; font-size:13.5px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .combo-item:hover, .combo-item.active { background:var(--accent); color:#fff; }
   .combo-empty { padding:10px 12px; color:var(--muted); font-size:13px; }
-  button { padding:10px 16px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--fg); font-size:14px; cursor:pointer; white-space:nowrap; }
+  button { padding:9px 15px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--fg); font-size:14px; cursor:pointer; white-space:nowrap; font-family:inherit; }
   button:hover { border-color:var(--accent); }
-  button.primary { background:linear-gradient(180deg,var(--accent),var(--accent2)); border:none; font-weight:600; padding:12px 26px; font-size:15px; }
-  button.primary:disabled { opacity:.5; cursor:not-allowed; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:linear-gradient(180deg,var(--accent),var(--accent2)); border:none; font-weight:600; padding:11px 24px; font-size:15px; }
+  button.danger { background:linear-gradient(180deg,#dc2626,#b91c1c); border:none; font-weight:600; }
   button.ghost { background:transparent; }
+  button.sm { padding:5px 10px; font-size:12.5px; }
   .hint { font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6; }
-  .actions { display:flex; align-items:center; gap:14px; margin-top:4px; }
+  .actions { display:flex; align-items:center; gap:14px; margin-top:14px; flex-wrap:wrap; }
   .status { font-size:13px; }
   .status.running { color:var(--warn); }
   .status.success { color:var(--ok); }
   .status.error { color:var(--err); }
-  #log { margin:0; padding:16px; height:360px; overflow:auto; background:#0a0d12; border:1px solid var(--border); border-radius:10px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.55; white-space:pre-wrap; word-break:break-word; color:#c9d4e0; }
+  pre.out { margin:0; padding:14px; height:340px; overflow:auto; background:#0a0d12; border:1px solid var(--border); border-radius:10px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.55; white-space:pre-wrap; word-break:break-word; color:#c9d4e0; }
+  pre#log { height:400px; }
   .muted { color:var(--muted); }
-  @media (max-width:720px) { .grid { grid-template-columns:1fr; } }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:8px 10px; color:var(--muted); font-weight:500; border-bottom:1px solid var(--border); white-space:nowrap; font-size:12px; }
+  td { padding:8px 10px; border-bottom:1px solid rgba(43,51,63,.55); vertical-align:top; word-break:break-word; }
+  tr:hover td { background:rgba(255,255,255,.02); }
+  .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:20px; border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
+  .tag.ok { color:var(--ok); border-color:rgba(34,197,94,.4); }
+  .tag.err { color:var(--err); border-color:rgba(239,68,68,.4); }
+  .tag.warn { color:var(--warn); border-color:rgba(245,158,11,.4); }
+  .joblist { display:flex; flex-direction:column; gap:8px; max-height:520px; overflow:auto; }
+  .jobitem { border:1px solid var(--border); border-radius:9px; padding:9px 11px; cursor:pointer; background:var(--panel2); }
+  .jobitem:hover { border-color:var(--accent); }
+  .jobitem.sel { border-color:var(--accent); background:rgba(59,130,246,.1); }
+  .jobitem .t1 { font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .jobitem .t2 { font-size:11px; color:var(--muted); margin-top:4px; }
+  .homecard { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; display:flex; flex-direction:column; gap:8px; }
+  .homecard h3 { font-size:14px; margin:0; font-weight:650; }
+  .homecard p { margin:0; font-size:12.5px; color:var(--muted); line-height:1.65; }
+  .homecard .kw { font-size:11px; color:var(--muted); }
+  .homecard button { align-self:flex-start; margin-top:4px; }
+  .subtabs { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+  .subtabs button.on { border-color:var(--accent); color:#fff; background:rgba(59,130,246,.18); }
+  .warnbox { border:1px solid rgba(239,68,68,.4); background:rgba(239,68,68,.08); border-radius:9px; padding:11px 13px; font-size:12.5px; color:#fca5a5; line-height:1.6; margin-bottom:16px; }
+  .okbox { border:1px solid rgba(34,197,94,.35); background:rgba(34,197,94,.07); border-radius:9px; padding:11px 13px; font-size:12.5px; color:#86efac; line-height:1.6; }
+  .toast { position:fixed; right:20px; bottom:20px; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; font-size:13px; box-shadow:0 14px 40px rgba(0,0,0,.5); opacity:0; transform:translateY(8px); transition:.2s; pointer-events:none; max-width:420px; z-index:100; }
+  .toast.show { opacity:1; transform:none; }
+  .toast.err { border-color:rgba(239,68,68,.5); color:#fca5a5; }
+  .toast.ok { border-color:rgba(34,197,94,.5); color:#86efac; }
+  @media (max-width:860px) { .grid, .split { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><span class="dot" id="liveDot"></span><h1>测试环境 · 合并 QA 分支并部署</h1></header>
-  <p class="sub">开发分支 → 合并进 QA 分支 → 推送到远程 → 触发 Shipwright 构建 → 下发测试环境部署。仅限 test 环境。</p>
+  <header>
+    <span class="dot" id="liveDot"></span>
+    <h1>Leo Live Inspector · 测试环境控制台</h1>
+    <span class="badge">仅测试环境 · 生产只读</span>
+  </header>
 
-  <div class="card">
+  <nav class="tabs" id="tabs" role="tablist">
+    <button role="tab" class="active" data-tab="home" aria-selected="true">首页</button>
+    <button role="tab" data-tab="deploy" aria-selected="false">部署</button>
+    <button role="tab" data-tab="logs" aria-selected="false">日志检索</button>
+    <button role="tab" data-tab="apollo" aria-selected="false">Apollo 配置</button>
+    <button role="tab" data-tab="write" aria-selected="false">写操作</button>
+  </nav>
+
+  <!-- ============================ 首页 ============================ -->
+  <section class="page active" id="page-home">
+    <div class="card">
+      <h2>这个控制台能做什么</h2>
+      <p class="hint" style="margin-top:0">
+        本页面把 leo-live-inspector 里最适合「手上要立刻动手」的能力做成了可视化入口。
+        部署与写操作只作用于<b>测试环境</b>；线上环境一律只读，写入需要走官方审批流，页面不会提供入口。
+      </p>
+    </div>
     <div class="grid">
-      <div class="field">
-        <label>项目（已登记 git 地址清单 · 展开即全量，不做搜索过滤）</label>
-        <div class="combo">
-          <input id="project" autocomplete="off" spellcheck="false" placeholder="点击展开项目清单，或直接输入服务名" />
-          <div class="combo-list" id="projectList" hidden></div>
-        </div>
-        <div class="hint">登记位置：skill 的 resources/project_repos.json，或 ~/.shrimp/skills/live-inspector/project_repos.json</div>
+      <div class="homecard">
+        <h3>🚀 合并 QA 分支并部署</h3>
+        <p>选项目 → 选开发分支 → 合并进 QA 分支 → 推送 → 触发 Shipwright 构建 → 下发测试环境工作负载。合并全程在隔离 worktree 执行，不动你正在编辑的目录。</p>
+        <div class="kw">对应脚本：deploy_web.js + ci_deploy.js</div>
+        <button class="ghost" data-goto="deploy">进入部署 →</button>
       </div>
-      <div class="field">
-        <label>执行模式</label>
-        <select id="mode">
-          <option value="merge_deploy">合并 + 构建部署（QA 受保护时会在推送处提示改走 MR）</option>
-          <option value="deploy_dev">直接部署开发分支（不合并、不推 QA，最快）</option>
-          <option value="merge_only">仅合并到 QA 分支</option>
-          <option value="build_deploy">仅构建部署（不合并）</option>
-          <option value="build_only">仅构建（不部署）</option>
-          <option value="preview">仅预演合并（不推送不部署）</option>
-        </select>
+      <div class="homecard">
+        <h3>🩺 部署后自动验活</h3>
+        <p>部署成功后自动拉取该服务近 10 分钟的测试环境容器日志，抓 <code>ERROR</code> 级别条目，一眼看出「部署完了服务到底活没活」。</p>
+        <div class="kw">对应脚本：test_log_query.js</div>
+        <button class="ghost" data-goto="logs">去日志检索 →</button>
       </div>
-      <div class="field">
-        <label>冲突处理策略</label>
-        <div class="hint" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-          严格失败：出现冲突立即中止并列出冲突文件，不自动改代码、不推送、不部署。
-        </div>
+      <div class="homecard">
+        <h3>🔍 日志检索（测试 / 生产）</h3>
+        <p>按服务 + 关键词 + 时间窗 + 日志级别查日志。测试环境走大禹泳道容器日志，生产环境走 FAST/Kibana（严格只读）。</p>
+        <div class="kw">对应脚本：test_log_query.js / fast_query.js</div>
+        <button class="ghost" data-goto="logs">进入日志检索 →</button>
       </div>
-      <div class="field">
-        <label>开发分支（可输入搜索 · 自动记忆）</label>
-        <div class="combo">
-          <input id="devBranch" autocomplete="off" spellcheck="false" placeholder="点击选择，或输入关键字搜索" />
-          <div class="combo-list" id="devList" hidden></div>
-        </div>
+      <div class="homecard">
+        <h3>⚙️ Apollo 配置速查与发布轨迹</h3>
+        <p>查某服务在某环境的全量配置或按 key 关键字模糊搜；再按配置项追溯历次发布是谁、什么时候、把值从什么改成了什么。</p>
+        <div class="kw">对应脚本：apollo_query.js / apollo_history.js</div>
+        <button class="ghost" data-goto="apollo">进入 Apollo →</button>
       </div>
-      <div class="field">
-        <label>QA 分支（可输入搜索 · 自动记忆）</label>
-        <div class="combo">
-          <input id="qaBranch" autocomplete="off" spellcheck="false" placeholder="点击选择，或输入关键字搜索" />
-          <div class="combo-list" id="qaList" hidden></div>
-        </div>
-        <div class="hint" id="qaHint"></div>
+      <div class="homecard">
+        <h3>🛠️ 测试环境写操作</h3>
+        <p>Apollo 配置改值与发布、ES 文档改/删、Kafka 模拟投递、测试库 DML。全部强制「预检 → 确认」两步，未确认不写入。</p>
+        <div class="kw">对应脚本：apollo_modify.js / es_modify.js / kafka_send.js / test_mysql_query.js</div>
+        <button class="ghost" data-goto="write">进入写操作 →</button>
       </div>
-      <div class="field" style="grid-column:1/-1">
-        <label>仓库来源（已登记 git 地址则无需填写）</label>
-        <div class="row">
-          <input id="repoPath" placeholder="可选：手动指定本地仓库路径，如 /Users/you/IdeaProjects/iot-platform" />
-          <button class="ghost" id="btnRepo">设置仓库</button>
-          <button class="ghost" id="btnBranches">刷新分支</button>
-        </div>
-        <div class="hint" id="repoHint"></div>
+      <div class="homecard">
+        <h3>📜 历史任务回看</h3>
+        <p>每次部署的完整日志都落盘在 <code>~/.shrimp/skills/live-inspector/deploy_jobs/</code>，服务重启后仍能点开看失败原因。</p>
+        <div class="kw">入口：部署页右侧「最近任务」</div>
+        <button class="ghost" data-goto="deploy">查看任务 →</button>
       </div>
     </div>
-    <div class="actions">
-      <button class="primary" id="btnDeploy">合并并部署</button>
-      <button class="ghost" id="btnCred">检查凭据</button>
-      <span class="status" id="status">就绪</span>
+    <div class="card" style="margin-top:16px">
+      <h2>安全边界</h2>
+      <p class="hint" style="margin-top:0">
+        · <b>生产环境物理只读</b>：任何写操作在后端就被拦截，页面不提供生产写入入口；<br />
+        · <b>测试环境两步确认</b>：所有写操作必须先「预检」看到 Diff，再点「确认提交」才真正写入；<br />
+        · <b>部署合并隔离</b>：合并冲突时严格失败并列出冲突文件，绝不自动改代码；QA 分支受保护时改走临时分支 + MR。
+      </p>
     </div>
-    <div class="hint" id="credHint"></div>
-    <div class="hint">⚠️ 合并会创建隔离的临时工作区执行，不会影响你当前正在编辑的工作目录。生产环境不会被自动部署。</div>
-  </div>
+  </section>
 
-  <div class="card">
-    <div class="field" style="margin-bottom:10px;flex-direction:row;align-items:center;justify-content:space-between">
-      <label>执行日志</label>
-      <span class="hint" id="logFollow" style="margin:0;display:none">已暂停自动跟随 · <a href="#" id="btnFollow" style="color:var(--accent)">回到最新</a></span>
+  <!-- ============================ 部署 ============================ -->
+  <section class="page" id="page-deploy">
+    <div class="split">
+      <div>
+        <div class="card">
+          <div class="grid">
+            <div class="field">
+              <label>项目（已登记 git 地址清单 · 展开即全量，不做搜索过滤）</label>
+              <div class="combo">
+                <input id="project" autocomplete="off" spellcheck="false" placeholder="点击展开项目清单，或直接输入服务名" />
+                <div class="combo-list" id="projectList" hidden></div>
+              </div>
+              <div class="hint">登记位置：skill 的 resources/project_repos.json，或 ~/.shrimp/skills/live-inspector/project_repos.json</div>
+            </div>
+            <div class="field">
+              <label>执行模式</label>
+              <select id="mode">
+                <option value="merge_deploy">合并 + 构建部署（QA 受保护时会在推送处提示改走 MR）</option>
+                <option value="deploy_dev">直接部署开发分支（不合并、不推 QA，最快）</option>
+                <option value="merge_only">仅合并到 QA 分支</option>
+                <option value="build_deploy">仅构建部署（不合并）</option>
+                <option value="build_only">仅构建（不部署）</option>
+                <option value="preview">仅预演合并（不推送不部署）</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>冲突处理策略</label>
+              <div class="hint" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+                严格失败：出现冲突立即中止并列出冲突文件，不自动改代码、不推送、不部署。
+              </div>
+            </div>
+            <div class="field">
+              <label>开发分支（可输入搜索 · 自动记忆）</label>
+              <div class="combo">
+                <input id="devBranch" autocomplete="off" spellcheck="false" placeholder="点击选择，或输入关键字搜索" />
+                <div class="combo-list" id="devList" hidden></div>
+              </div>
+            </div>
+            <div class="field">
+              <label>QA 分支（可输入搜索 · 自动记忆）</label>
+              <div class="combo">
+                <input id="qaBranch" autocomplete="off" spellcheck="false" placeholder="点击选择，或输入关键字搜索" />
+                <div class="combo-list" id="qaList" hidden></div>
+              </div>
+              <div class="hint" id="qaHint"></div>
+            </div>
+            <div class="field" style="grid-column:1/-1">
+              <label>仓库来源（已登记 git 地址则无需填写）</label>
+              <div class="row">
+                <input id="repoPath" placeholder="可选：手动指定本地仓库路径，如 /Users/you/IdeaProjects/iot-platform" />
+                <button class="ghost" id="btnRepo">设置仓库</button>
+                <button class="ghost" id="btnBranches">刷新分支</button>
+              </div>
+              <div class="hint" id="repoHint"></div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="primary" id="btnDeploy">合并并部署</button>
+            <button class="ghost" id="btnCred">检查凭据</button>
+            <label class="hint" style="display:flex;align-items:center;gap:6px;margin:0">
+              <input type="checkbox" id="autoVerify" checked style="width:auto" /> 部署成功后自动验活
+            </label>
+            <span class="status" id="status">就绪</span>
+          </div>
+          <div class="hint" id="credHint"></div>
+          <div class="hint">⚠️ 合并会创建隔离的临时工作区执行，不会影响你当前正在编辑的工作目录。生产环境不会被自动部署。</div>
+        </div>
+
+        <div class="card">
+          <div class="field" style="margin-bottom:10px;flex-direction:row;align-items:center;justify-content:space-between">
+            <label>执行日志</label>
+            <span class="hint" id="logFollow" style="margin:0;display:none">已暂停自动跟随 · <a href="#" id="btnFollow" style="color:var(--accent)">回到最新</a></span>
+          </div>
+          <pre class="out" id="log">等待操作…</pre>
+        </div>
+
+        <div class="card" id="verifyCard" style="display:none">
+          <h2>部署后验活（近 10 分钟测试环境 ERROR 日志）</h2>
+          <div id="verifyBody"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>最近任务</h2>
+        <div class="hint" style="margin:0 0 10px">点击任意一条回看完整日志</div>
+        <div class="joblist" id="jobList"><div class="combo-empty">加载中…</div></div>
+        <button class="ghost sm" id="btnJobs" style="margin-top:10px;width:100%">刷新列表</button>
+      </div>
     </div>
-    <pre id="log">等待操作…</pre>
-  </div>
+  </section>
+
+  <!-- ============================ 日志检索 ============================ -->
+  <section class="page" id="page-logs">
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label>日志来源</label>
+          <select id="logSource">
+            <option value="test">测试环境容器日志（大禹泳道 · Loki）</option>
+            <option value="prod">生产环境 FAST / Kibana（只读）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>服务</label>
+          <div class="combo">
+            <input id="logApp" autocomplete="off" spellcheck="false" placeholder="输入服务名或别名，如 iot-platform / warehouse" />
+            <div class="combo-list" id="logAppList" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>关键词（可选）</label>
+          <input id="logQuery" placeholder="如 Exception / orderCode / 接口路径" />
+        </div>
+        <div class="field">
+          <label>日志级别</label>
+          <select id="logLevel">
+            <option value="">全部</option>
+            <option value="ERROR">ERROR</option>
+            <option value="WARN">WARN</option>
+            <option value="INFO">INFO</option>
+            <option value="DEBUG">DEBUG</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>时间窗</label>
+          <select id="logTime">
+            <option value="15m">最近 15 分钟</option>
+            <option value="1h" selected>最近 1 小时</option>
+            <option value="6h">最近 6 小时</option>
+            <option value="24h">最近 24 小时</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>条数</label>
+          <input id="logSize" value="20" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnLogQuery">查询日志</button>
+        <button class="ghost" id="btnLogError">只看 ERROR</button>
+        <span class="status" id="logStatus">就绪</span>
+      </div>
+      <div class="hint" id="logHint"></div>
+    </div>
+    <div class="card">
+      <h2>结果</h2>
+      <div id="logResult"><div class="combo-empty">尚未查询</div></div>
+    </div>
+  </section>
+
+  <!-- ============================ Apollo ============================ -->
+  <section class="page" id="page-apollo">
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label>服务</label>
+          <div class="combo">
+            <input id="apApp" autocomplete="off" spellcheck="false" placeholder="如 iot / saas / warehouse" />
+            <div class="combo-list" id="apAppList" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>环境</label>
+          <select id="apEnv">
+            <option value="test" selected>测试环境 (TEST)</option>
+            <option value="preview">预发环境 (PREVIEW · 只读)</option>
+            <option value="prod">生产环境 (PROD · 只读)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>命名空间 或 key 关键字</label>
+          <input id="apKeyword" placeholder="如 application / timeout（留空=全量概览）" />
+        </div>
+        <div class="field">
+          <label>发布轨迹：配置项 key</label>
+          <input id="apHistoryKey" placeholder="填写后点「查发布轨迹」，如 personless.closeDoorTimeoutSecond" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnApQuery">查配置</button>
+        <button class="ghost" id="btnApHistory">查发布轨迹</button>
+        <span class="status" id="apStatus">就绪</span>
+      </div>
+      <div class="hint" id="apHint"></div>
+    </div>
+    <div class="card">
+      <h2 id="apResultTitle">结果</h2>
+      <div id="apResult"><div class="combo-empty">尚未查询</div></div>
+    </div>
+  </section>
+
+  <!-- ============================ 写操作 ============================ -->
+  <section class="page" id="page-write">
+    <div class="warnbox">
+      🚨 <b>仅测试环境</b>。所有写操作必须先「预检」看到变更 Diff，再点「确认提交」才会真正写入。
+      生产环境写入在后端被物理拦截，本页面不提供入口。
+    </div>
+    <div class="subtabs" id="writeTabs">
+      <button class="on" data-w="apollo">Apollo 配置</button>
+      <button data-w="es">ES 文档</button>
+      <button data-w="kafka">Kafka 投递</button>
+      <button data-w="mysql">测试库 SQL</button>
+    </div>
+
+    <div class="card wsec" id="w-apollo">
+      <div class="grid">
+        <div class="field">
+          <label>服务</label>
+          <div class="combo">
+            <input id="wApApp" autocomplete="off" spellcheck="false" placeholder="如 iot / saas / warehouse" />
+            <div class="combo-list" id="wApAppList" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>配置项 Key</label>
+          <input id="wApKey" placeholder="如 liveRunner.access.ucIdWhitelist" />
+        </div>
+        <div class="field">
+          <label>命名空间（可留空，自动嗅探）</label>
+          <input id="wApNs" placeholder="如 application" />
+        </div>
+        <div class="field">
+          <label>发布属性</label>
+          <select id="wApType">
+            <option value="switch">业务开关 (SWITCH)</option>
+            <option value="change">业务变更 (CHANGE)</option>
+            <option value="degrade">业务降级 (DEGRADE)</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>新的值（支持 JSON）</label>
+          <textarea id="wApValue" placeholder='如 [31534062,12] 或 {"enabled":true}'></textarea>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>发布备注</label>
+          <input id="wApComment" placeholder="可选，会写入 Apollo 发布记录" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="wApPre">预检（不写入）</button>
+        <button class="danger" id="wApCommit" disabled>确认提交</button>
+        <span class="status" id="wApStatus">就绪</span>
+      </div>
+    </div>
+
+    <div class="card wsec" id="w-es" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>索引（Service ID 或名称关键词）</label>
+          <input id="wEsApp" placeholder="如 门锁 / 1036710001" />
+        </div>
+        <div class="field">
+          <label>动作</label>
+          <select id="wEsAction">
+            <option value="update-part">更新部分字段 (update-part)</option>
+            <option value="update">整条覆盖更新 (update)</option>
+            <option value="insert">新增 (insert)</option>
+            <option value="delete">删除 (delete)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>文档 ID</label>
+          <input id="wEsId" placeholder="如 10001" />
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>写入数据（JSON，删除时可留空）</label>
+          <textarea id="wEsData" placeholder='{"battery": 95}'></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="wEsPre">预检（Dry-Run Diff）</button>
+        <button class="danger" id="wEsCommit" disabled>确认提交</button>
+        <span class="status" id="wEsStatus">就绪</span>
+      </div>
+    </div>
+
+    <div class="card wsec" id="w-kafka" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>Topic（名称 / 中文别名 / 关键词）</label>
+          <input id="wKfTopic" placeholder="如 工单 / beijia-reach-event" />
+        </div>
+        <div class="field">
+          <label>消息 Key（可选）</label>
+          <input id="wKfKey" placeholder="用于固定分区路由" />
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>消息体（JSON）</label>
+          <textarea id="wKfData" placeholder='{"orderCode":"TEST-001","status":"已接单"}'></textarea>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>基于 Sample 模板覆盖字段（可选，每行 k=v；填了则使用 --use-sample）</label>
+          <textarea id="wKfSets" placeholder="status=已完成"></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="wKfPre">预检（不投递）</button>
+        <button class="danger" id="wKfCommit" disabled>确认投递</button>
+        <span class="status" id="wKfStatus">就绪</span>
+      </div>
+      <div class="hint">Kafka 无原生 Dry-Run：预检只做参数校验与消息体回显，点「确认投递」才真正发送到测试集群。</div>
+    </div>
+
+    <div class="card wsec" id="w-mysql" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>服务（测试库）</label>
+          <div class="combo">
+            <input id="wDbApp" autocomplete="off" spellcheck="false" placeholder="如 saas / recorder / iot" />
+            <div class="combo-list" id="wDbAppList" hidden></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>数据源（可留空，使用默认主库）</label>
+          <input id="wDbDs" placeholder="如 tenant0" />
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>SQL</label>
+          <textarea id="wDbSql" placeholder="SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5" style="min-height:100px"></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="wDbPre">预检 / 查询</button>
+        <button class="danger" id="wDbCommit" disabled>确认执行</button>
+        <span class="status" id="wDbStatus">就绪</span>
+      </div>
+      <div class="hint">SELECT/SHOW/DESC/EXPLAIN 点「预检 / 查询」即直接返回结果；INSERT/UPDATE/DELETE 需要再点「确认执行」。无 WHERE 的 UPDATE/DELETE 由脚本层拦截。</div>
+    </div>
+
+    <div class="card">
+      <h2 id="wOutTitle">执行输出</h2>
+      <pre class="out" id="wOut">等待操作…</pre>
+    </div>
+  </section>
 </div>
+
+<div class="toast" id="toast"></div>
 
 <script>
 const PROJECT_ITEMS = ${JSON.stringify(projectItems).replace(/</g, '\\u003c')};
+const APP_ITEMS = ${JSON.stringify(appItems).replace(/</g, '\\u003c')};
 let currentProject = '';
 let pollTimer = null;
 let lastJobId = null;
@@ -840,10 +1332,16 @@ let lastJobId = null;
 const $ = id => document.getElementById(id);
 const modeLabel = { merge_deploy:'合并并部署', merge_only:'仅合并', deploy_dev:'直接部署开发分支', build_deploy:'仅构建部署', build_only:'仅构建', preview:'仅预演合并' };
 
-function setStatus(text, cls) {
-  const el = $('status');
-  el.textContent = text;
-  el.className = 'status' + (cls ? ' ' + cls : '');
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg, type) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = 'toast' + (type ? ' ' + type : ''); }, 3200);
 }
 
 async function api(url, opts) {
@@ -856,16 +1354,48 @@ async function api(url, opts) {
   return res.json();
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function post(url, body) {
+  return api(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
 }
 
-let branchOptions = [];
-const comboRegistry = [];
+// ---------------------------------------------------------------- tabs ----
+function showTab(name) {
+  document.querySelectorAll('#tabs button').forEach(a => {
+    const on = a.dataset.tab === name;
+    a.classList.toggle('active', on);
+    a.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
+  try { localStorage.setItem('leo.tab', name); } catch (e) {}
+  // 页面隐藏时 scrollHeight 为 0，轮询期间贴底会失效；切回部署页时补一次贴底
+  if (name === 'deploy') {
+    setTimeout(() => {
+      if (!logStick) return;
+      const el = $('log');
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 30);
+  }
+}
+$('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (b) showTab(b.dataset.tab);
+});
+document.querySelectorAll('button[data-goto]').forEach(b => {
+  b.addEventListener('click', () => showTab(b.dataset.goto));
+});
 
-function setupCombo(inputId, listId) {
+// -------------------------------------------------------------- combos ----
+let branchOptions = [];
+
+// 通用搜索型下拉：输入即过滤（用于分支与各类服务名）
+function makeCombo(inputId, listId, itemsFn, onPick) {
   const input = $(inputId);
   const list = $(listId);
+  if (!input || !list) return null;
   let items = [];
   let active = -1;
 
@@ -876,10 +1406,11 @@ function setupCombo(inputId, listId) {
   }
 
   function render(filter) {
+    const all = itemsFn() || [];
     const f = (filter || '').toLowerCase().trim();
-    items = branchOptions.filter(b => !f || b.toLowerCase().includes(f)).slice(0, 400);
+    items = all.filter(b => !f || String(b).toLowerCase().includes(f)).slice(0, 400);
     if (!items.length) {
-      list.innerHTML = '<div class="combo-empty">' + (branchOptions.length ? '无匹配分支' : '暂无分支，请先选择项目或刷新分支') + '</div>';
+      list.innerHTML = '<div class="combo-empty">' + (all.length ? '无匹配项' : '暂无可选项') + '</div>';
       list.hidden = false;
       return;
     }
@@ -892,7 +1423,7 @@ function setupCombo(inputId, listId) {
 
   input.addEventListener('focus', () => render(''));
   input.addEventListener('click', () => render(''));
-  // 点击时全选「记住的上次分支」，直接输入关键字即可整段替换（否则会拼在旧值后面导致搜不到）
+  // 点击时全选旧值，直接输入关键字即可整段替换
   input.addEventListener('mousedown', e => {
     if (!input.value) return;
     e.preventDefault();
@@ -904,8 +1435,10 @@ function setupCombo(inputId, listId) {
     if (list.hidden) { if (e.key === 'ArrowDown') render(''); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, items.length - 1); highlight(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); highlight(); }
-    else if (e.key === 'Enter') { if (active >= 0 && items[active]) { e.preventDefault(); input.value = items[active]; hide(); saveSelection(); } }
-    else if (e.key === 'Escape') { hide(); }
+    else if (e.key === 'Enter') {
+      if (active >= 0 && items[active]) { e.preventDefault(); input.value = items[active]; hide(); if (onPick) onPick(); }
+      else hide();
+    } else if (e.key === 'Escape') { hide(); }
   });
   input.addEventListener('blur', () => setTimeout(hide, 120));
   list.addEventListener('mousedown', e => {
@@ -914,73 +1447,12 @@ function setupCombo(inputId, listId) {
     e.preventDefault();
     input.value = items[Number(it.dataset.i)];
     hide();
-    saveSelection();
+    if (onPick) onPick();
   });
-
-  comboRegistry.push({ input, list, hide });
+  return { input, list, hide };
 }
 
-async function loadState(project) {
-  if (!project) return;
-  try {
-    const st = await api('/api/state?project=' + encodeURIComponent(project));
-    $('repoPath').value = st.repoMode === 'manual' ? (st.repoPath || '') : '';
-    let repoText;
-    if (st.cloneError) {
-      repoText = '❌ 克隆失败: ' + st.cloneError;
-    } else if (st.gitUrl && st.repoMode === 'clone') {
-      repoText = '已登记仓库 ' + st.gitUrl + '，托管克隆 ' + (st.repoPath || '') + '（无需本地检出）';
-    } else if (st.repoPath) {
-      repoText = '本地仓库: ' + st.repoPath;
-    } else {
-      repoText = '未登记 git 地址，也未找到本地仓库：请在 skill 的 resources/project_repos.json 登记，或手动填写路径后点「设置仓库」。';
-    }
-    await loadBranches(project);
-    $('repoHint').textContent = repoText + ($('repoHint').textContent ? '　|　' + $('repoHint').textContent : '');
-    $('devBranch').value = st.devBranch || '';
-    $('qaBranch').value = st.qaBranch || '';
-    checkQaConvention();
-  } catch (e) {
-    setStatus('读取记忆失败: ' + e.message, 'error');
-  }
-}
-
-async function loadBranches(project, force) {
-  const hint = $('repoHint');
-  if (!project) { hint.textContent = '请先在上方选择项目。'; return; }
-  hint.textContent = '正在加载分支列表…';
-  try {
-    const data = await api('/api/branches?project=' + encodeURIComponent(project) + (force ? '&force=1' : ''));
-    branchOptions = data.branches || [];
-    hint.textContent = data.repoPath
-      ? '共 ' + branchOptions.length + ' 个远程分支，点击分支框可搜索选择'
-      : '未找到本地仓库，请手动填写路径后点击「设置仓库」。';
-  } catch (e) {
-    branchOptions = [];
-    hint.textContent = '加载分支失败: ' + e.message;
-  }
-}
-
-async function saveSelection() {
-  if (!currentProject) return;
-  try {
-    await api('/api/state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        project: currentProject,
-        devBranch: $('devBranch').value.trim(),
-        qaBranch: $('qaBranch').value.trim()
-      })
-    });
-  } catch {}
-}
-
-setupCombo('devBranch', 'devList');
-setupCombo('qaBranch', 'qaList');
-
-// 项目下拉：与分支下拉不同的策略 —— 不做搜索过滤。
-// 点击/输入都直接展开「已登记项目」全量清单，输入文字不会把清单过滤掉。
+// 项目下拉：不做搜索过滤 —— 点击/输入都直接展开「已登记项目」全量清单
 function setupProjectCombo() {
   const input = $('project');
   const list = $('projectList');
@@ -1017,7 +1489,6 @@ function setupProjectCombo() {
 
   input.addEventListener('focus', render);
   input.addEventListener('click', render);
-  // 点击时全选「记住的上次项目」，直接输入即可整段替换（避免追加到旧值后面）
   input.addEventListener('mousedown', e => {
     const v = input.value.trim();
     const known = PROJECT_ITEMS.some(p => p.id === v);
@@ -1027,7 +1498,6 @@ function setupProjectCombo() {
     input.select();
   });
   input.addEventListener('input', () => {
-    // 输入时清单仍然全量展开（不过滤），输入完整项目名则立即联动
     render();
     const v = input.value.trim();
     const hit = PROJECT_ITEMS.find(p => p.id.toLowerCase() === v.toLowerCase());
@@ -1062,7 +1532,7 @@ function setupProjectCombo() {
       const st = await api('/api/state?project=' + encodeURIComponent(v));
       if (st.repoPath) onProjectChanged(v);
       else input.value = currentProject;
-    } catch {
+    } catch (e) {
       input.value = currentProject;
     }
   }, 120));
@@ -1074,9 +1544,69 @@ function setupProjectCombo() {
   });
 }
 
+// ============================================================ 部署 Tab ====
+function setStatus(text, cls) {
+  const el = $('status');
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+async function loadState(project) {
+  if (!project) return;
+  try {
+    const st = await api('/api/state?project=' + encodeURIComponent(project));
+    $('repoPath').value = st.repoMode === 'manual' ? (st.repoPath || '') : '';
+    let repoText;
+    if (st.cloneError) {
+      repoText = '❌ 克隆失败: ' + st.cloneError;
+    } else if (st.gitUrl && st.repoMode === 'clone') {
+      repoText = '已登记仓库 ' + st.gitUrl + '，托管克隆 ' + (st.repoPath || '') + '（无需本地检出）';
+    } else if (st.repoPath) {
+      repoText = '本地仓库: ' + st.repoPath;
+    } else {
+      repoText = '未登记 git 地址，也未找到本地仓库：请在 skill 的 resources/project_repos.json 登记，或手动填写路径后点「设置仓库」。';
+    }
+    await loadBranches(project);
+    $('repoHint').textContent = repoText;
+    $('devBranch').value = st.devBranch || '';
+    $('qaBranch').value = st.qaBranch || '';
+    checkQaConvention();
+  } catch (e) {
+    setStatus('读取记忆失败: ' + e.message, 'error');
+  }
+}
+
+async function loadBranches(project, force) {
+  const hint = $('repoHint');
+  if (!project) { hint.textContent = '请先在上方选择项目。'; return; }
+  hint.textContent = '正在加载分支列表…';
+  try {
+    const data = await api('/api/branches?project=' + encodeURIComponent(project) + (force ? '&force=1' : ''));
+    branchOptions = data.branches || [];
+    hint.textContent = data.repoPath
+      ? '共 ' + branchOptions.length + ' 个远程分支，点击分支框可搜索选择'
+      : '未找到本地仓库，请手动填写路径后点击「设置仓库」。';
+  } catch (e) {
+    branchOptions = [];
+    hint.textContent = '加载分支失败: ' + e.message;
+  }
+}
+
+async function saveSelection() {
+  if (!currentProject) return;
+  try {
+    await post('/api/state', {
+      project: currentProject,
+      devBranch: $('devBranch').value.trim(),
+      qaBranch: $('qaBranch').value.trim()
+    });
+  } catch (e) {}
+}
+
+makeCombo('devBranch', 'devList', () => branchOptions, saveSelection);
+makeCombo('qaBranch', 'qaList', () => branchOptions, saveSelection);
 setupProjectCombo();
 
-// 测试环境实际使用的是最新的 qa-YYYY-MM 分支，给出提示避免选错
 function checkQaConvention() {
   const qa = ($('qaBranch').value || '').trim();
   const hint = $('qaHint');
@@ -1099,16 +1629,14 @@ function onProjectChanged(value) {
   $('status').textContent = '就绪';
   branchOptions = [];
   loadState(project);
+  // 其他 Tab 的服务名输入框跟着联动，减少重复输入
+  ['logApp', 'apApp', 'wApApp', 'wDbApp'].forEach(id => { if ($(id) && !$(id).value) $(id).value = project; });
 }
 
 $('btnRepo').addEventListener('click', async () => {
   if (!currentProject) return setStatus('请先选择项目', 'error');
   try {
-    await api('/api/repo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: currentProject, path: $('repoPath').value.trim() })
-    });
+    await post('/api/repo', { project: currentProject, path: $('repoPath').value.trim() });
     await loadBranches(currentProject, true);
     setStatus('仓库路径已保存', 'success');
   } catch (e) {
@@ -1147,16 +1675,13 @@ $('btnDeploy').addEventListener('click', async () => {
 
   currentProject = project;
   await saveSelection();
+  $('verifyCard').style.display = 'none';
   logStick = true;
   updateFollowHint();
   $('log').textContent = '任务提交中…';
   let job;
   try {
-    job = await api('/api/deploy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, devBranch: dev, qaBranch: qa, mode, conflict })
-    });
+    job = await post('/api/deploy', { project, devBranch: dev, qaBranch: qa, mode, conflict });
   } catch (e) {
     setStatus(e.message, 'error');
     $('log').textContent = '❌ ' + e.message;
@@ -1166,12 +1691,12 @@ $('btnDeploy').addEventListener('click', async () => {
   setStatus('执行中…', 'running');
   $('btnDeploy').disabled = true;
   startPolling(job.id);
+  loadJobs();
 });
 
 // 日志区「智能跟随」：只有用户停留在底部时才自动滚到底。
-// 用户往上翻看历史日志时停止跟随，回到底部附近（STICK_THRESHOLD 像素内）后自动恢复。
 const STICK_THRESHOLD = 48;
-let logStick = true; // 是否继续跟随日志尾部
+let logStick = true;
 
 function isLogAtBottom() {
   const el = $('log');
@@ -1184,7 +1709,6 @@ function updateFollowHint() {
   tip.style.display = logStick ? 'none' : 'inline';
 }
 
-// 用户滚动日志区：离开底部就停止跟随，回到底部附近恢复
 $('log').addEventListener('scroll', () => {
   const stick = isLogAtBottom();
   if (stick !== logStick) {
@@ -1193,7 +1717,6 @@ $('log').addEventListener('scroll', () => {
   }
 });
 
-// 「回到最新」：恢复跟随并立刻滚到底
 $('btnFollow').addEventListener('click', e => {
   e.preventDefault();
   logStick = true;
@@ -1209,7 +1732,6 @@ function setLogText(el, text) {
     el.textContent = text;
     el.scrollTop = el.scrollHeight;
   } else {
-    // 用户正在翻看历史：新增日志都在末尾，保持 scrollTop 不变即可让视口纹丝不动
     const keep = el.scrollTop;
     el.textContent = text;
     el.scrollTop = keep;
@@ -1231,9 +1753,11 @@ function startPolling(jobId) {
         $('btnDeploy').disabled = false;
         if (job.status === 'success') {
           setStatus(job.result && job.result.imageAddress ? '部署成功 · ' + job.result.imageAddress : '执行成功', 'success');
+          if ($('autoVerify').checked && job.project) verifyDeploy(job.project, job.mode);
         } else {
           setStatus('执行失败', 'error');
         }
+        loadJobs();
       }
     } catch (e) {
       // 忽略轮询瞬时错误
@@ -1243,7 +1767,444 @@ function startPolling(jobId) {
   pollTimer = setInterval(tick, 1200);
 }
 
+// ---------------------------------------------------------- 部署后验活 ----
+async function verifyDeploy(project, mode) {
+  const card = $('verifyCard');
+  const body = $('verifyBody');
+  card.style.display = 'block';
+  if (mode === 'merge_only' || mode === 'preview') {
+    body.innerHTML = '<div class="hint" style="margin:0">本次模式未触发构建部署，跳过验活。</div>';
+    return;
+  }
+  body.innerHTML = '<div class="hint" style="margin:0">正在拉取 ' + escHtml(project) + ' 近 10 分钟测试环境 ERROR 日志…</div>';
+  try {
+    const r = await post('/api/verify', { project, minutes: '10m' });
+    body.innerHTML = renderVerify(r, project);
+  } catch (e) {
+    body.innerHTML = '<div class="warnbox" style="margin:0">验活失败：' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderVerify(r, project) {
+  if (!r.ok) {
+    return '<div class="warnbox" style="margin:0">未能获取日志：' + escHtml(r.error || r.stderr || '未知错误') + '</div>';
+  }
+  const j = r.json || {};
+  const logs = j.logs || [];
+  if (!logs.length) {
+    return '<div class="okbox">✅ 近 10 分钟未发现 ERROR 日志（' + escHtml(project) + '），服务看起来已经起来了。</div>';
+  }
+  let html = '<div class="warnbox" style="margin:0 0 12px">⚠️ 近 10 分钟有 ' + logs.length + ' 条 ERROR 日志，请确认是否为本次部署引入。</div>';
+  html += '<table><thead><tr><th style="width:150px">时间</th><th>日志</th></tr></thead><tbody>';
+  logs.forEach(l => {
+    const ts = l.timestamp ? new Date(l.timestamp).toLocaleString('zh-CN') : '-';
+    const line = (l.line || '').replace(/^.*?stdout F /, '');
+    html += '<tr><td class="mono muted">' + escHtml(ts) + '</td><td class="mono" title="' + escHtml(line) + '">' + escHtml(line.slice(0, 400)) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// ------------------------------------------------------------ 历史任务 ----
+async function loadJobs() {
+  const box = $('jobList');
+  try {
+    const data = await api('/api/jobs');
+    const jobs = data.jobs || [];
+    if (!jobs.length) {
+      box.innerHTML = '<div class="combo-empty">暂无历史任务</div>';
+      return;
+    }
+    box.innerHTML = jobs.map(j => {
+      const cls = j.status === 'success' ? 'ok' : (j.status === 'running' ? 'warn' : 'err');
+      const t = j.startedAt ? new Date(j.startedAt).toLocaleString('zh-CN') : '';
+      return '<div class="jobitem' + (j.id === lastJobId ? ' sel' : '') + '" data-id="' + escHtml(j.id) + '">' +
+        '<div class="t1">' + escHtml(j.project || '-') + ' <span class="tag ' + cls + '">' + escHtml(j.status) + '</span></div>' +
+        '<div class="t2">' + escHtml(j.modeLabel || j.mode || '') + ' · ' + escHtml(t) + '</div>' +
+        '</div>';
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '<div class="combo-empty">加载失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+$('jobList').addEventListener('click', async e => {
+  const it = e.target.closest('.jobitem');
+  if (!it) return;
+  lastJobId = it.dataset.id;
+  document.querySelectorAll('.jobitem').forEach(x => x.classList.toggle('sel', x === it));
+  try {
+    const job = await api('/api/job?id=' + encodeURIComponent(lastJobId));
+    const head = '历史任务 [' + (job.project || '-') + '] ' + (job.devBranch || '-') + ' → ' + (job.qaBranch || '-') +
+      ' (' + (modeLabel[job.mode] || job.mode) + ') · ' + job.status + String.fromCharCode(10, 10);
+    logStick = true;
+    updateFollowHint();
+    $('log').textContent = head + (job.log || '');
+    $('log').scrollTop = $('log').scrollHeight;
+    if (job.status === 'running') {
+      setStatus('该任务仍在执行…', 'running');
+      $('btnDeploy').disabled = true;
+      startPolling(job.id);
+    } else {
+      setStatus(job.status === 'success' ? '历史任务：执行成功' : '历史任务：执行失败', job.status === 'success' ? 'success' : 'error');
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      $('btnDeploy').disabled = false;
+    }
+    showTab('deploy');
+  } catch (err) {
+    toast('读取任务失败: ' + err.message, 'err');
+  }
+});
+$('btnJobs').addEventListener('click', loadJobs);
+
+// ========================================================== 日志检索 Tab ====
+makeCombo('logApp', 'logAppList', () => APP_ITEMS);
+makeCombo('apApp', 'apAppList', () => APP_ITEMS);
+makeCombo('wApApp', 'wApAppList', () => APP_ITEMS);
+makeCombo('wDbApp', 'wDbAppList', () => APP_ITEMS);
+
+function setLogStatus(text, cls) {
+  const el = $('logStatus');
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+async function runLogQuery() {
+  const app = $('logApp').value.trim();
+  const source = $('logSource').value;
+  if (!app) { setLogStatus('请填写服务名', 'error'); return; }
+  setLogStatus('查询中…', 'running');
+  $('logResult').innerHTML = '<div class="combo-empty">查询中…</div>';
+  try {
+    const r = await post('/api/logs', {
+      source,
+      app,
+      query: $('logQuery').value.trim(),
+      level: $('logLevel').value,
+      time: $('logTime').value,
+      size: $('logSize').value
+    });
+    $('logResult').innerHTML = renderLogs(r, source);
+    setLogStatus(r.ok ? '完成' : '失败', r.ok ? 'success' : 'error');
+  } catch (e) {
+    $('logResult').innerHTML = '<div class="warnbox" style="margin:0">' + escHtml(e.message) + '</div>';
+    setLogStatus('失败', 'error');
+  }
+}
+
+function renderLogs(r, source) {
+  if (!r.ok) {
+    return '<div class="warnbox" style="margin:0">' + escHtml(r.error || r.stderr || r.stdout || '查询失败') + '</div>';
+  }
+  const j = r.json || {};
+  const logs = j.logs || [];
+  const meta = source === 'test'
+    ? 'Loki 表达式 ' + (j.expr || '-') + ' · 时间窗 ' + (j.timeRange || '-') + ' · 耗时 ' + (j.costMs || '-') + 'ms'
+    : '索引 ' + ((j.summary || {}).indexPattern || '-') + ' · 时间窗 ' + ((j.summary || {}).timeRange || '-') + ' · 命中 ' + ((j.summary || {}).totalHits || 0) + ' · 耗时 ' + ((j.summary || {}).totalCostMs || '-') + 'ms';
+  let html = '<div class="hint" style="margin:0 0 10px">' + escHtml(meta) + '　|　返回 ' + logs.length + ' 条</div>';
+  if (!logs.length) return html + '<div class="combo-empty">无匹配日志</div>';
+  html += '<table><thead><tr><th style="width:150px">时间</th><th style="width:60px">级别</th><th>内容</th></tr></thead><tbody>';
+  logs.forEach(l => {
+    let ts = '-', level = '', text = '';
+    if (source === 'test') {
+      ts = l.timestamp ? new Date(l.timestamp).toLocaleString('zh-CN') : '-';
+      text = (l.line || '').replace(/^.*?stdout F /, '');
+      const m = text.match(/\\b(ERROR|WARN|INFO|DEBUG)\\b/);
+      level = m ? m[1] : '';
+    } else {
+      ts = l.timestamp ? String(l.timestamp).replace('T', ' ').slice(0, 23) : '-';
+      level = l.logLevel || '';
+      text = (l.uri ? '[' + l.uri + '] ' : '') + (l.message || '');
+    }
+    const lvlCls = level === 'ERROR' ? 'err' : (level === 'WARN' ? 'warn' : '');
+    html += '<tr><td class="mono muted">' + escHtml(ts) + '</td>' +
+      '<td>' + (level ? '<span class="tag ' + lvlCls + '">' + escHtml(level) + '</span>' : '') + '</td>' +
+      '<td class="mono" title="' + escHtml(text) + '">' + escHtml(text.slice(0, 500)) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+$('btnLogQuery').addEventListener('click', runLogQuery);
+$('btnLogError').addEventListener('click', () => { $('logLevel').value = 'ERROR'; runLogQuery(); });
+
+// ============================================================ Apollo Tab ====
+function setApStatus(text, cls) {
+  const el = $('apStatus');
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+$('btnApQuery').addEventListener('click', async () => {
+  const app = $('apApp').value.trim();
+  if (!app) { setApStatus('请填写服务名', 'error'); return; }
+  setApStatus('查询中…', 'running');
+  $('apResultTitle').textContent = '配置明细';
+  $('apResult').innerHTML = '<div class="combo-empty">查询中…</div>';
+  try {
+    const r = await post('/api/apollo/query', { app, keyword: $('apKeyword').value.trim(), env: $('apEnv').value });
+    $('apResult').innerHTML = renderApolloQuery(r);
+    setApStatus(r.ok ? '完成' : '失败', r.ok ? 'success' : 'error');
+  } catch (e) {
+    $('apResult').innerHTML = '<div class="warnbox" style="margin:0">' + escHtml(e.message) + '</div>';
+    setApStatus('失败', 'error');
+  }
+});
+
+function renderApolloQuery(r) {
+  if (!r.ok) return '<div class="warnbox" style="margin:0">' + escHtml(r.error || r.stderr || r.stdout || '查询失败') + '</div>';
+  const j = r.json || {};
+  const results = j.results || {};
+  const namespaces = Object.keys(results);
+  let html = '<div class="hint" style="margin:0 0 10px">' + escHtml(j.resolvedAppId || '') + ' · ' + escHtml(j.envLabel || j.env || '') +
+    ' · 扫描 ' + (j.totalKeysScanned || 0) + ' 个 key，命中 ' + (j.totalMatched || 0) + ' 个 · 耗时 ' + (j.costMs || '-') + 'ms</div>';
+  if (!namespaces.length) return html + '<div class="combo-empty">无匹配配置</div>';
+  namespaces.forEach(ns => {
+    const kv = results[ns] || {};
+    const keys = Object.keys(kv);
+    html += '<h2 style="font-size:13px;margin:16px 0 8px">命名空间：' + escHtml(ns) + ' <span class="tag">' + keys.length + ' 项</span></h2>';
+    html += '<table><thead><tr><th style="width:38%">Key</th><th>Value</th></tr></thead><tbody>';
+    keys.forEach(k => {
+      const v = kv[k];
+      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      html += '<tr><td class="mono">' + escHtml(k) + '</td><td class="mono" title="' + escHtml(s) + '">' + escHtml(s.length > 600 ? s.slice(0, 600) + ' …' : s) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  });
+  return html;
+}
+
+$('btnApHistory').addEventListener('click', async () => {
+  const app = $('apApp').value.trim();
+  const key = $('apHistoryKey').value.trim();
+  if (!app) { setApStatus('请填写服务名', 'error'); return; }
+  if (!key) { setApStatus('请填写要追溯的配置项 key', 'error'); return; }
+  setApStatus('追踪发布轨迹…', 'running');
+  $('apResultTitle').textContent = '发布轨迹';
+  $('apResult').innerHTML = '<div class="combo-empty">追踪中…</div>';
+  try {
+    const r = await post('/api/apollo/history', { app, key, env: $('apEnv').value });
+    $('apResult').innerHTML = renderApolloHistory(r);
+    setApStatus(r.ok ? '完成' : '失败', r.ok ? 'success' : 'error');
+  } catch (e) {
+    $('apResult').innerHTML = '<div class="warnbox" style="margin:0">' + escHtml(e.message) + '</div>';
+    setApStatus('失败', 'error');
+  }
+});
+
+function renderApolloHistory(r) {
+  if (!r.ok) return '<div class="warnbox" style="margin:0">' + escHtml(r.error || r.stderr || r.stdout || '查询失败') + '</div>';
+  const j = r.json || {};
+  const hist = j.history || [];
+  let html = '<div class="hint" style="margin:0 0 10px">' + escHtml(j.appId || '') + ' · ' + escHtml(j.envLabel || j.env || '') +
+    ' · 命名空间 ' + escHtml(j.namespace || '-') + ' · 扫描 ' + (j.scannedReleasesCount || 0) + ' 个版本，变更 ' + (j.changesCount || 0) + ' 次</div>';
+  const live = j.liveVerifiedValue;
+  html += '<div class="okbox" style="margin:0 0 12px">当前实时生效值：<span class="mono">' +
+    escHtml(live === null || live === undefined ? '（未在生效配置中）' : String(live)) + '</span></div>';
+  if (!hist.length) return html + '<div class="combo-empty">扫描范围内该配置项未发生变更</div>';
+  html += '<table><thead><tr><th style="width:120px">类型</th><th style="width:160px">发布时间</th><th style="width:110px">操作人</th><th>变更</th></tr></thead><tbody>';
+  hist.forEach(h => {
+    const cls = h.type === 'CREATE' ? 'ok' : (h.type === 'DELETE' ? 'err' : 'warn');
+    const before = h.oldValue === null || h.oldValue === undefined ? '（无）' : String(h.oldValue);
+    const after = h.newValue === null || h.newValue === undefined ? '（无）' : String(h.newValue);
+    html += '<tr><td><span class="tag ' + cls + '">' + escHtml(h.typeLabel || h.type) + '</span></td>' +
+      '<td class="mono muted">' + escHtml(String(h.releaseTime || '').replace('T', ' ')) + '</td>' +
+      '<td>' + escHtml(h.operator || '-') + '</td>' +
+      '<td class="mono"><span class="muted">' + escHtml(before.slice(0, 200)) + '</span> → ' + escHtml(after.slice(0, 300)) +
+      (h.comment ? '<div class="hint" style="margin-top:4px">备注：' + escHtml(h.comment) + '</div>' : '') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// ============================================================ 写操作 Tab ====
+let writeOut = '';
+function wOut(text) {
+  writeOut = text;
+  $('wOut').textContent = text;
+}
+function setWStatus(id, text, cls) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+function wResult(r, title) {
+  $('wOutTitle').textContent = title;
+  const parts = [];
+  if (r.json) parts.push(JSON.stringify(r.json, null, 2));
+  if (r.stdout) parts.push(r.stdout);
+  if (r.stderr) parts.push('--- stderr ---' + String.fromCharCode(10) + r.stderr);
+  wOut(parts.filter(Boolean).join(String.fromCharCode(10, 10)) || '（无输出）');
+}
+
+$('writeTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-w]');
+  if (!b) return;
+  document.querySelectorAll('#writeTabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.wsec').forEach(s => { s.style.display = s.id === 'w-' + b.dataset.w ? '' : 'none'; });
+});
+
+// ---- Apollo 写 ----
+$('wApPre').addEventListener('click', async () => {
+  const app = $('wApApp').value.trim(), key = $('wApKey').value.trim(), value = $('wApValue').value;
+  if (!app || !key) { setWStatus('wApStatus', '请填写服务名与 key', 'error'); return; }
+  if (value === '') { setWStatus('wApStatus', '请填写新的值', 'error'); return; }
+  setWStatus('wApStatus', '预检中…', 'running');
+  $('wApCommit').disabled = true;
+  try {
+    const r = await post('/api/write/apollo', {
+      app, key, value, namespace: $('wApNs').value.trim(),
+      type: $('wApType').value, comment: $('wApComment').value.trim(), confirm: false
+    });
+    wResult(r, 'Apollo 变更预检');
+    if (r.ok) { setWStatus('wApStatus', '预检通过，请核对 Diff 后确认提交', 'success'); $('wApCommit').disabled = false; }
+    else setWStatus('wApStatus', '预检失败', 'error');
+  } catch (e) {
+    wOut(e.message); setWStatus('wApStatus', '预检失败', 'error');
+  }
+});
+
+$('wApCommit').addEventListener('click', async () => {
+  if (!confirm('确认把 Apollo 配置 [' + $('wApKey').value.trim() + '] 写入测试环境并发布？')) return;
+  setWStatus('wApStatus', '提交中…', 'running');
+  $('wApCommit').disabled = true;
+  try {
+    const r = await post('/api/write/apollo', {
+      app: $('wApApp').value.trim(), key: $('wApKey').value.trim(), value: $('wApValue').value,
+      namespace: $('wApNs').value.trim(), type: $('wApType').value,
+      comment: $('wApComment').value.trim(), confirm: true
+    });
+    wResult(r, 'Apollo 变更提交结果');
+    setWStatus('wApStatus', r.ok ? '已提交并发布' : '提交失败', r.ok ? 'success' : 'error');
+    toast(r.ok ? 'Apollo 配置已发布' : 'Apollo 提交失败', r.ok ? 'ok' : 'err');
+  } catch (e) {
+    wOut(e.message); setWStatus('wApStatus', '提交失败', 'error');
+  }
+});
+
+// ---- ES 写 ----
+$('wEsPre').addEventListener('click', async () => {
+  const svc = $('wEsApp').value.trim(), id = $('wEsId').value.trim(), action = $('wEsAction').value;
+  if (!svc || !id) { setWStatus('wEsStatus', '请填写索引与文档 ID', 'error'); return; }
+  setWStatus('wEsStatus', '预检中…', 'running');
+  $('wEsCommit').disabled = true;
+  try {
+    const r = await post('/api/write/es', { service: svc, action, id, data: $('wEsData').value.trim(), confirm: false });
+    wResult(r, 'ES 变更预检 (Dry-Run Diff)');
+    if (r.ok) { setWStatus('wEsStatus', '预检通过，请核对 Diff 后确认提交', 'success'); $('wEsCommit').disabled = false; }
+    else setWStatus('wEsStatus', '预检失败', 'error');
+  } catch (e) {
+    wOut(e.message); setWStatus('wEsStatus', '预检失败', 'error');
+  }
+});
+
+$('wEsCommit').addEventListener('click', async () => {
+  if (!confirm('确认对测试环境 ES 执行 ' + $('wEsAction').value + '（ID: ' + $('wEsId').value.trim() + '）？')) return;
+  setWStatus('wEsStatus', '提交中…', 'running');
+  $('wEsCommit').disabled = true;
+  try {
+    const r = await post('/api/write/es', {
+      service: $('wEsApp').value.trim(), action: $('wEsAction').value,
+      id: $('wEsId').value.trim(), data: $('wEsData').value.trim(), confirm: true
+    });
+    wResult(r, 'ES 写入结果');
+    setWStatus('wEsStatus', r.ok ? '已写入' : '写入失败', r.ok ? 'success' : 'error');
+    toast(r.ok ? 'ES 写入完成' : 'ES 写入失败', r.ok ? 'ok' : 'err');
+  } catch (e) {
+    wOut(e.message); setWStatus('wEsStatus', '写入失败', 'error');
+  }
+});
+
+// ---- Kafka 投递 ----
+function kafkaSets() {
+  return $('wKfSets').value.split(String.fromCharCode(10)).map(s => s.trim()).filter(Boolean);
+}
+
+$('wKfPre').addEventListener('click', async () => {
+  const topic = $('wKfTopic').value.trim();
+  if (!topic) { setWStatus('wKfStatus', '请填写 Topic', 'error'); return; }
+  setWStatus('wKfStatus', '预检中…', 'running');
+  $('wKfCommit').disabled = true;
+  try {
+    const r = await post('/api/write/kafka', {
+      topic, data: $('wKfData').value.trim(), key: $('wKfKey').value.trim(),
+      sets: kafkaSets(), confirm: false
+    });
+    wResult(r, 'Kafka 投递预检');
+    if (r.ok) { setWStatus('wKfStatus', '预检通过，请核对消息体后确认投递', 'success'); $('wKfCommit').disabled = false; }
+    else setWStatus('wKfStatus', '预检失败', 'error');
+  } catch (e) {
+    wOut(e.message); setWStatus('wKfStatus', '预检失败', 'error');
+  }
+});
+
+$('wKfCommit').addEventListener('click', async () => {
+  if (!confirm('确认向测试环境 Kafka Topic [' + $('wKfTopic').value.trim() + '] 投递这条消息？')) return;
+  setWStatus('wKfStatus', '投递中…', 'running');
+  $('wKfCommit').disabled = true;
+  try {
+    const r = await post('/api/write/kafka', {
+      topic: $('wKfTopic').value.trim(), data: $('wKfData').value.trim(),
+      key: $('wKfKey').value.trim(), sets: kafkaSets(), confirm: true
+    });
+    wResult(r, 'Kafka 投递结果');
+    setWStatus('wKfStatus', r.ok ? '投递完成' : '投递失败', r.ok ? 'success' : 'error');
+    toast(r.ok ? 'Kafka 消息已投递' : 'Kafka 投递失败', r.ok ? 'ok' : 'err');
+  } catch (e) {
+    wOut(e.message); setWStatus('wKfStatus', '投递失败', 'error');
+  }
+});
+
+// ---- 测试库 SQL ----
+const SQL_READ = /^\\s*(select|show|desc|describe|explain)\\b/i;
+
+$('wDbPre').addEventListener('click', async () => {
+  const svc = $('wDbApp').value.trim(), sql = $('wDbSql').value.trim();
+  if (!svc || !sql) { setWStatus('wDbStatus', '请填写服务与 SQL', 'error'); return; }
+  const isRead = SQL_READ.test(sql);
+  setWStatus('wDbStatus', isRead ? '查询中…' : '预检中…', 'running');
+  $('wDbCommit').disabled = true;
+  try {
+    const r = await post('/api/write/mysql', { service: svc, datasource: $('wDbDs').value.trim(), sql, confirm: false });
+    wResult(r, isRead ? 'SQL 查询结果' : 'SQL 预检');
+    if (isRead) {
+      setWStatus('wDbStatus', r.ok ? '查询完成' : '查询失败', r.ok ? 'success' : 'error');
+      $('wDbCommit').disabled = true;
+    } else if (r.ok) {
+      setWStatus('wDbStatus', '预检通过，确认后才会执行写入', 'success');
+      $('wDbCommit').disabled = false;
+    } else {
+      setWStatus('wDbStatus', '预检失败', 'error');
+    }
+  } catch (e) {
+    wOut(e.message); setWStatus('wDbStatus', '预检失败', 'error');
+  }
+});
+
+$('wDbCommit').addEventListener('click', async () => {
+  const sql = $('wDbSql').value.trim();
+  if (SQL_READ.test(sql)) { toast('这条是只读语句，已直接执行，无需确认', 'err'); return; }
+  if (!confirm('确认在测试库执行这条写入 SQL？' + String.fromCharCode(10, 10) + sql.slice(0, 300))) return;
+  setWStatus('wDbStatus', '执行中…', 'running');
+  $('wDbCommit').disabled = true;
+  try {
+    const r = await post('/api/write/mysql', {
+      service: $('wDbApp').value.trim(), datasource: $('wDbDs').value.trim(), sql, confirm: true
+    });
+    wResult(r, 'SQL 执行结果');
+    setWStatus('wDbStatus', r.ok ? '执行完成' : '执行失败', r.ok ? 'success' : 'error');
+    toast(r.ok ? 'SQL 已执行' : 'SQL 执行失败', r.ok ? 'ok' : 'err');
+  } catch (e) {
+    wOut(e.message); setWStatus('wDbStatus', '执行失败', 'error');
+  }
+});
+
+// ================================================================== init ====
 async function init() {
+  try {
+    const saved = localStorage.getItem('leo.tab');
+    if (saved) showTab(saved);
+  } catch (e) {}
   try {
     const data = await api('/api/initial');
     if (data.lastProject) {
@@ -1251,13 +2212,15 @@ async function init() {
       currentProject = data.lastProject;
       await loadState(currentProject);
     }
-  } catch {}
+  } catch (e) {}
   refreshCredentialStatus();
+  loadJobs();
   // 恢复最近一次任务日志（服务重启后仍可回看失败原因）
   try {
     const { jobs } = await api('/api/jobs');
     if (jobs && jobs.length) {
       const last = jobs[0];
+      lastJobId = last.id;
       const job = await api('/api/job?id=' + encodeURIComponent(last.id));
       $('log').textContent = '最近任务 [' + last.project + '] ' + last.devBranch + ' → ' + last.qaBranch + ' (' + (last.modeLabel || last.mode) + ') · ' + last.status + String.fromCharCode(10, 10) + (job.log || '');
       // 恢复历史日志后重置为跟随并贴底，便于直接看到最新进度
@@ -1266,7 +2229,7 @@ async function init() {
       $('log').scrollTop = $('log').scrollHeight;
       setStatus(last.status === 'success' ? '上次执行成功' : (last.status === 'running' ? '上次任务仍在执行' : '上次执行失败'), last.status === 'success' ? 'success' : (last.status === 'running' ? 'running' : 'error'));
     }
-  } catch {}
+  } catch (e) {}
 }
 init();
 </script>
@@ -1280,7 +2243,7 @@ const server = http.createServer(async (req, res) => {
     const route = url.pathname;
 
     if (req.method === 'GET' && (route === '/' || route === '/index.html')) {
-      const html = buildPage(listProjects());
+      const html = buildPage(listProjects(), listAppItems());
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(html);
     }
@@ -1288,6 +2251,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && route === '/api/initial') {
       const lastProject = state.lastProject || Object.keys(state.branches)[0] || '';
       return json(res, 200, { lastProject });
+    }
+
+    if (req.method === 'GET' && route === '/api/apps') {
+      return json(res, 200, { apps: listAppItems() });
     }
 
     if (req.method === 'GET' && route === '/api/projects') {
@@ -1407,6 +2374,179 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------- 部署后验活 ----
+    // 部署成功后在测试环境容器日志里抓 ERROR，回答「这次部署服务活没活」
+    if (req.method === 'POST' && route === '/api/verify') {
+      const b = await readBody(req);
+      const project = (b.project || '').trim();
+      const minutes = (b.minutes || '10m').trim();
+      if (!project) return json(res, 400, { error: '缺少 project' });
+      if (!/^\d{1,3}[mh]$/.test(minutes)) return json(res, 400, { error: '时间窗格式应为 15m / 1h' });
+      const r = await runScript(SCRIPTS.testLog, [project, '--level', 'ERROR', '-t', minutes, '-n', '30', '--format', 'json']);
+      return scriptResult(res, r);
+    }
+
+    // ------------------------------------------------------------ 日志检索 ----
+    if (req.method === 'POST' && route === '/api/logs') {
+      const b = await readBody(req);
+      const source = b.source === 'prod' ? 'prod' : 'test';
+      const app = (b.app || '').trim();
+      if (!app) return json(res, 400, { error: '缺少服务名' });
+      const time = (b.time || '1h').trim();
+      if (!/^\d{1,3}[mhd]$/.test(time)) return json(res, 400, { error: '时间窗格式应为 15m / 1h / 7d' });
+      const size = String(Math.min(Math.max(parseInt(b.size, 10) || 20, 1), 200));
+      const level = (b.level || '').toUpperCase();
+      const query = (b.query || '').trim();
+
+      if (source === 'test') {
+        if (level && !['ERROR', 'WARN', 'INFO', 'DEBUG'].includes(level)) return json(res, 400, { error: '日志级别不合法' });
+        const args = [app, '-t', time, '-n', size, '--format', 'json'];
+        if (level) args.push('--level', level);
+        if (query) args.push('-q', query);
+        return scriptResult(res, await runScript(SCRIPTS.testLog, args));
+      }
+      // 生产环境：FAST/Kibana 严格只读，不带任何写参数
+      if (level && !['ERROR', 'WARN', 'INFO', 'DEBUG'].includes(level)) return json(res, 400, { error: '日志级别不合法' });
+      const args = ['-a', app, '-t', time, '-n', size, '--format', 'json', '-e', 'prod'];
+      if (level) args.push('--level', level);
+      if (query) args.push('-q', query);
+      return scriptResult(res, await runScript(SCRIPTS.fastLog, args));
+    }
+
+    // ---------------------------------------------------------- Apollo 只读 ----
+    if (req.method === 'POST' && route === '/api/apollo/query') {
+      const b = await readBody(req);
+      const app = (b.app || '').trim();
+      const env = (b.env || 'test').toLowerCase();
+      if (!app) return json(res, 400, { error: '缺少服务名' });
+      if (!['test', 'preview', 'pre', 'prod'].includes(env)) return json(res, 400, { error: '环境不合法' });
+      const keyword = (b.keyword || '').trim();
+      const args = [app];
+      if (keyword) args.push(keyword);
+      args.push('-e', env, '--json');
+      return scriptResult(res, await runScript(SCRIPTS.apolloQuery, args));
+    }
+
+    if (req.method === 'POST' && route === '/api/apollo/history') {
+      const b = await readBody(req);
+      const app = (b.app || '').trim();
+      const key = (b.key || '').trim();
+      const env = (b.env || 'test').toLowerCase();
+      if (!app || !key) return json(res, 400, { error: '缺少服务名或配置项 key' });
+      if (!['test', 'preview', 'pre', 'prod'].includes(env)) return json(res, 400, { error: '环境不合法' });
+      return scriptResult(res, await runScript(SCRIPTS.apolloHistory, [app, key, '-e', env, '--json']));
+    }
+
+    // -------------------------------------------------------------- 写操作 ----
+    // 统一契约：confirm=false 只做预检，confirm=true 才真正写入。
+    // 每个分支都硬钉测试环境，不接受前端传入其他环境。
+    if (req.method === 'POST' && route === '/api/write/apollo') {
+      const b = await readBody(req);
+      const app = (b.app || '').trim();
+      const key = (b.key || '').trim();
+      const value = b.value === undefined || b.value === null ? '' : String(b.value);
+      if (!app || !key) return json(res, 400, { error: '缺少服务名或配置项 key' });
+      if (value === '') return json(res, 400, { error: '缺少新的值' });
+      const type = ['switch', 'change', 'degrade'].includes(b.type) ? b.type : 'switch';
+      const args = [app];
+      const ns = (b.namespace || '').trim();
+      if (ns) args.push(ns);
+      args.push(key, value, '--env', 'TEST', '--type', type);
+      const comment = (b.comment || '').trim();
+      if (comment) args.push('--comment', comment);
+      if (b.confirm === true) args.push('--confirm');
+      const r = await runScript(SCRIPTS.apolloModify, args, 180_000);
+      return scriptResult(res, r, b.confirm === true ? '已提交并发布' : '预检完成');
+    }
+
+    if (req.method === 'POST' && route === '/api/write/es') {
+      const b = await readBody(req);
+      const service = (b.service || '').trim();
+      const action = (b.action || '').trim();
+      const id = String(b.id || '').trim();
+      if (!service || !id) return json(res, 400, { error: '缺少索引或文档 ID' });
+      if (!['update-part', 'update', 'insert', 'delete'].includes(action)) return json(res, 400, { error: '动作不合法' });
+      const args = [service, '--action', action, '--id', id, '-e', 'test'];
+      const data = b.data === undefined || b.data === null ? '' : String(b.data).trim();
+      if (action !== 'delete') {
+        if (!data) return json(res, 400, { error: '缺少写入数据 JSON' });
+        try { JSON.parse(data); } catch { return json(res, 400, { error: '写入数据不是合法 JSON' }); }
+        args.push('--data', data);
+      }
+      if (b.confirm === true) args.push('--confirm');
+      const r = await runScript(SCRIPTS.esModify, args, 180_000);
+      return scriptResult(res, r, b.confirm === true ? '已写入' : '预检完成');
+    }
+
+    if (req.method === 'POST' && route === '/api/write/kafka') {
+      const b = await readBody(req);
+      const topic = (b.topic || '').trim();
+      if (!topic) return json(res, 400, { error: '缺少 topic' });
+      const data = b.data === undefined || b.data === null ? '' : String(b.data).trim();
+      const sets = Array.isArray(b.sets) ? b.sets.map(s => String(s).trim()).filter(Boolean) : [];
+      if (!data && !sets.length) return json(res, 400, { error: '缺少消息体，或填写 sample 覆盖字段' });
+      if (data) {
+        try { JSON.parse(data); } catch { return json(res, 400, { error: '消息体不是合法 JSON' }); }
+      }
+      // 预检不投递：只回显将要发送的内容，避免「点了下按钮就真发消息」
+      if (b.confirm !== true) {
+        return json(res, 200, {
+          ok: true,
+          json: {
+            mode: 'preflight',
+            env: 'test',
+            topic,
+            key: (b.key || '').trim() || null,
+            useSample: sets.length > 0,
+            sets,
+            messageBody: data ? JSON.parse(data) : null,
+            note: 'Kafka 无原生 Dry-Run：确认后才会真正投递到测试集群'
+          },
+          stdout: '',
+          stderr: ''
+        });
+      }
+      const args = ['-t', topic, '-e', 'test'];
+      if (data) args.push('-d', data);
+      if (sets.length) args.push('--use-sample');
+      for (const s of sets) args.push('-s', s);
+      const key = (b.key || '').trim();
+      if (key) args.push('-k', key);
+      const r = await runScript(SCRIPTS.kafkaSend, args, 120_000);
+      return scriptResult(res, r, '已投递');
+    }
+
+    if (req.method === 'POST' && route === '/api/write/mysql') {
+      const b = await readBody(req);
+      const service = (b.service || '').trim();
+      const sql = (b.sql || '').trim();
+      if (!service || !sql) return json(res, 400, { error: '缺少服务或 SQL' });
+      // 只允许单条语句，避免一次提交塞进多段写入绕过确认
+      if (/;\s*\S/.test(sql.replace(/;\s*$/, ''))) return json(res, 400, { error: '一次只能执行一条 SQL 语句' });
+      const isRead = /^(select|show|desc|describe|explain)\b/i.test(sql);
+      const ds = (b.datasource || '').trim();
+      const args = [service];
+      if (ds) args.push(ds);
+      args.push(sql, '--json');
+      // 只读语句直接执行；写语句必须显式 confirm
+      if (!isRead && b.confirm !== true) {
+        return json(res, 200, {
+          ok: true,
+          json: {
+            mode: 'preflight',
+            env: 'test',
+            operationType: /^(insert|replace)\b/i.test(sql) ? 'INSERT' : (/^(delete)\b/i.test(sql) ? 'DELETE' : 'UPDATE'),
+            sql,
+            note: '预检只做语法与参数确认，不会执行；确认后才会真正写入测试库'
+          },
+          stdout: '',
+          stderr: ''
+        });
+      }
+      const r = await runScript(SCRIPTS.mysqlQuery, args, 120_000);
+      return scriptResult(res, r, isRead ? '查询完成' : '已执行');
+    }
+
     json(res, 404, { error: 'Not Found' });
   } catch (err) {
     json(res, 500, { error: err.message });
@@ -1433,7 +2573,7 @@ server.listen(port, host, () => {
   const url = `http://${host}:${port}`;
   // 启动自检：确保页面内联脚本能被解析，避免「页面打开但没反应」
   try {
-    const html = buildPage([]);
+    const html = buildPage([], listAppItems());
     const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] || '';
     new Function(script); // eslint-disable-line no-new-func
     console.log(`\n✅ 页面脚本自检通过`);

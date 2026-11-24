@@ -1,6 +1,14 @@
-# 🖥️ 测试环境「合并 QA 分支并部署」可视化控制台
+# 🖥️ 测试环境控制台（部署 · 日志 · Apollo · 写操作）
 
-面向人工操作的一站式本地控制台：**选项目 → 选开发分支 → 合并进 QA 分支 → 推送远程 → 触发 Shipwright 构建 → 下发测试环境部署**，全程页面内可视化日志。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
+面向人工操作的本地一站式控制台，按 Tab 分为首页（能力导航）、部署、日志检索、Apollo 配置、写操作五块。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
+
+| Tab | 能力 | 复用的脚本 |
+| :--- | :--- | :--- |
+| **首页** | 五张能力卡片 + 安全边界说明，卡片可直接跳转到对应 Tab | - |
+| **部署** | 合并 QA → 推送 → Shipwright 构建 → 下发测试环境；右侧「最近任务」可回看任意历史日志 | `ci_deploy.js` |
+| **日志检索** | 测试环境容器日志 / 生产 FAST-Kibana（只读），按服务+关键词+级别+时间窗查 | `test_log_query.js` / `fast_query.js` |
+| **Apollo 配置** | 配置速查（支持 test/preview/prod 只读）与配置项发布轨迹 | `apollo_query.js` / `apollo_history.js` |
+| **写操作** | Apollo 改值与发布、ES 文档改删、Kafka 投递、测试库 SQL —— 全部「预检 → 确认」两步 | `apollo_modify.js` / `es_modify.js` / `kafka_send.js` / `test_mysql_query.js` |
 
 ---
 
@@ -17,6 +25,33 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 ```
 
 启动时会对内联页面脚本做一次语法自检，日志里出现 `✅ 页面脚本自检通过` 才说明页面可用。
+
+---
+
+## 🔌 二、新增 Tab 的后端契约
+
+页面自身的脚本只做「收参数 → 拼 CLI → 呈现结果」，不重建业务逻辑。所有 `POST /api/*` 都以 `--json` 调起脚本，返回值统一为：
+
+```json
+{ "ok": true, "json": { }, "stdout": "...", "stderr": "...", "message": "..." }
+```
+
+`ok=false` 时 `error` 字段给出可读原因（脚本原文或退出码）。脚本执行有 120–180 秒超时兜底，超时会杀掉子进程而不是把页面请求一起挂死。
+
+| 路由 | 作用 |
+| :--- | :--- |
+| `POST /api/verify` | 部署后验活：拉近 N 分钟 `ERROR` 日志 |
+| `POST /api/logs` | `source=test` 走 Loki，`source=prod` 走 FAST（只读） |
+| `POST /api/apollo/query` / `/history` | 配置速查 / 发布轨迹 |
+| `POST /api/write/apollo\|es\|kafka\|mysql` | `confirm=false` 预检，`confirm=true` 才写入 |
+| `GET /api/apps` | 服务名候选清单（来自 service catalog） |
+
+**环境锁死**：每个写操作路由都在服务端硬钉测试环境（`-e test` / `--env TEST`），不接受前端传入的其他环境值，生产写入在后端就被物理拦截。
+
+**两步确认的落地方式**：
+- Apollo / ES / MySQL 走脚本原生 Dry-Run（不带 `--confirm` 只输出 Diff）；
+- Kafka 没有原生 Dry-Run，`confirm=false` 时服务端只回显将要发送的 topic / key / 消息体；
+- MySQL 的 `SELECT/SHOW/DESC/EXPLAIN` 视为只读直接执行，其余语句必须 `confirm=true`，且服务端只允许单条语句，防止一次提交塞进多段写入绕过确认。
 
 ---
 
@@ -76,6 +111,7 @@ flowchart LR
 | **开发分支 / QA 分支下拉** | **保留关键字搜索** | 单服务动辄数百个远程分支，不搜索无法定位 |
 | 两者共同 | 点击时全选「记住的上次值」，直接输入即整段替换 | 否则输入会拼在旧值后面（`org_pull_update` + `qa-2026` = 搜不到任何分支） |
 | 项目框失焦 | 敲了半截就离开时，先确认本机是否有对应仓库；没有则**回退原项目** | 避免误触切走、把已加载的分支列表清空 |
+| 日志/Apollo/写操作的服务名框 | 用**关键字搜索**，候选来自 service catalog（56 个主键与别名） | 服务名与口语别名都能直接搜到（`warehouse`、`门锁`、`iot`） |
 
 ### 执行日志的「智能跟随」
 
@@ -108,7 +144,9 @@ flowchart LR
 
 1. **冲突策略固定「严格失败」**：合并出现冲突立即中止并列出冲突文件，**不自动改代码、不推送、不部署**；QA 分支受保护时在推送处提示改走 MR；
 2. **隔离执行**：合并在独立的临时 worktree 中完成，不影响用户当前正在编辑的工作目录；
-3. **仅限测试环境**：生产环境不提供自动化部署入口，需走线上变更参谋流程（见 [ci-deploy-guide.md](ci-deploy-guide.md)）。
+3. **部署与写操作仅限测试环境**：生产部署不提供自动化入口，需走线上变更参谋流程（见 [ci-deploy-guide.md](ci-deploy-guide.md)）；
+4. **生产只读**：日志检索与 Apollo 速查允许选 prod，但只给「查」不给「写」；页面没有任何生产写入入口，后端路由也硬钉测试环境；
+5. **写操作两步确认**：预检只展示 Diff / 回显，未点「确认提交」绝不落库；SQL 单条语句上限与无 WHERE 拦截由脚本层继续生效。
 
 ---
 
