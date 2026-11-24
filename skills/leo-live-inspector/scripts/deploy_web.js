@@ -1324,6 +1324,13 @@ function buildPage(projects, appItems) {
   td { padding:8px 10px; border-bottom:1px solid rgba(43,51,63,.55); vertical-align:top; word-break:break-word; }
   tr:hover td { background:rgba(255,255,255,.02); }
   .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px; }
+  /* 凭据表格：cookie 名可能有十几个，必须 fixed 布局 + 百分比列宽 + 单行省略，
+     否则名字会把「操作」列顶出卡片；窄窗口下操作按钮自动折行，不横向溢出 */
+  table.cred { table-layout:fixed; }
+  table.cred td, table.cred th { word-break:break-word; }
+  .cred-ops { display:flex; gap:6px; flex-wrap:wrap; }
+  .cred-line { margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:help; }
+  .cred-line b { color:var(--fg); font-weight:600; }
   .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:20px; border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
   .tag.ok { color:var(--ok); border-color:rgba(34,197,94,.4); }
   .tag.err { color:var(--err); border-color:rgba(239,68,68,.4); }
@@ -2713,6 +2720,21 @@ function fmtTime(iso) {
     pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' · ' + ago;
 }
 
+// 凭据台账专用的两行时间：绝对时间一行、相对时间一行，避免单行撑破列宽
+function fmtTimeParts(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return { abs: String(iso), rel: '' };
+  const pad = n => String(n).padStart(2, '0');
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  let rel;
+  if (mins < 1) rel = '刚刚';
+  else if (mins < 60) rel = mins + ' 分钟前';
+  else if (mins < 1440) rel = Math.floor(mins / 60) + ' 小时前';
+  else rel = Math.floor(mins / 1440) + ' 天前';
+  return { abs: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()), rel };
+}
+
 function setCredStatus(text, cls) {
   const el = $('credStatus');
   el.textContent = text;
@@ -2731,8 +2753,8 @@ function renderCredentials() {
   let html = '';
   for (const [group, items] of byGroup) {
     html += '<h3 style="font-size:13px;margin:4px 0 8px;color:var(--muted);font-weight:600">' + escHtml(group) + '</h3>' +
-      '<table style="margin-bottom:20px"><thead><tr><th style="width:270px">平台</th><th style="width:230px">凭据文件</th>' +
-      '<th style="width:150px">状态</th><th style="width:190px">上次更新</th><th>操作</th></tr></thead><tbody>';
+      '<table class="cred" style="margin-bottom:20px"><thead><tr><th style="width:20%">平台</th><th style="width:27%">凭据文件</th>' +
+      '<th style="width:9%">状态</th><th style="width:11%">上次更新</th><th style="width:33%">操作</th></tr></thead><tbody>';
     for (const it of items) {
       const busy = credBusy[it.id];
       const dot = it.exists ? '<span class="tag ok">已保存</span>' : '<span class="tag err">缺失</span>';
@@ -2741,17 +2763,23 @@ function renderCredentials() {
       const probeTag = !pr ? '' : (pr.busy ? ' <span class="tag">探活中…</span>'
         : (pr.ok ? ' <span class="tag ok" title="' + escHtml(pr.message) + '">登录态正常</span>'
           : ' <span class="tag err" title="' + escHtml(pr.message) + '">需重新登录</span>'));
-      const names = it.names && it.names.length
-        ? '<div class="mono muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' +
-          escHtml(it.names.join(', ')) + '">' + escHtml(it.names.join(', ')) + '</div>'
+      // 十几个 cookie 名排成一行必然撑爆表格，改单行省略：数量打头 + 前两个名字示意，完整清单放悬停提示
+      const allNames = it.names || [];
+      const preview = allNames.slice(0, 2).join(', ');
+      const names = allNames.length
+        ? '<div class="cred-line mono muted" title="' + escHtml(allNames.join(', ')) + '">' +
+          '<b>' + allNames.length + ' 个</b> · ' + escHtml(preview) + (allNames.length > 2 ? ' …' : '') + '</div>'
         : '';
       html += '<tr><td><b>' + escHtml(it.label) + '</b>' +
-        (it.url ? '<div class="mono muted" style="font-size:11px">' + escHtml(it.url) + '</div>' : '') +
+        (it.url ? '<div class="mono muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + escHtml(it.url) + '">' + escHtml(it.url) + '</div>' : '') +
         (it.note ? '<div class="hint" style="margin-top:4px">' + escHtml(it.note) + '</div>' : '') + '</td>' +
         '<td class="mono">' + escHtml(it.file) + (it.kind === 'apikey' ? ' <span class="tag">API Key</span>' : '') + names + '</td>' +
-        '<td>' + dot + probeTag + ' ' + envTip + (it.count ? '<div class="hint" style="margin-top:4px">' + it.count + ' 个 Cookie</div>' : '') + '</td>' +
-        '<td class="hint" style="margin:0">' + escHtml(fmtTime(it.updatedAt)) + '</td>' +
-        '<td><div style="display:flex;gap:6px;flex-wrap:nowrap">' +
+        '<td>' + dot + probeTag + ' ' + envTip + '</td>' +
+        '<td class="hint" style="margin:0">' + (() => {
+          const t = fmtTimeParts(it.updatedAt);
+          return t ? escHtml(t.abs) + (t.rel ? '<div style="font-size:11px">' + escHtml(t.rel) + '</div>' : '') : '—';
+        })() + '</td>' +
+        '<td><div class="cred-ops">' +
         (it.probeSupported ? '<button class="sm" data-cred-probe="' + it.id + '"' + (busy ? ' disabled' : '') + '>探活</button>' : '') +
         (it.kind === 'apikey' ? '' :
           '<button class="sm" data-cred-refresh="' + it.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? '等待中…' : '刷新') + '</button>' +
