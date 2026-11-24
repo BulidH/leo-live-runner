@@ -100,11 +100,22 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | 换端口打开 | `node scripts/console.js --port 6901` |
 | 只启动不弹浏览器 | `node scripts/console.js --no-open` |
 | 关掉控制台 | `node scripts/console.js --stop` |
+| 「开了还是旧页面 / 看不到新功能」 | `node scripts/console.js --restart` |
 | 直接要具体 Tab | `node scripts/console.js --open` 后把 `http://127.0.0.1:6886/#credentials` 这类锚点发给用户 |
 
 **为什么用 `console.js` 而不是直接跑 `deploy_web.js`**：前者是幂等的。端口已有实例就复用并打开页面；没有才在后台拉起（脱离当前进程组，不会被 run 结束带走），然后等就绪再开浏览器。直接跑 `deploy_web.js` 在端口被占用时会报 `EADDRINUSE` 退出。
 
-**交付时必须告诉用户的三件事**：URL、PID、停止命令。日志路径 `~/.shrimp/skills/live-inspector/console.log`。
+**版本自检（重要）**：`deploy_web.js` 的页面与路由在启动时固化进内存，**改完代码不重启就不会生效**。所以 `console.js` 会比对「端口上正在跑的代码指纹」与「磁盘上的代码指纹」（`/api/initial` 返回的 `buildId`）：
+
+| 情况 | 行为 |
+| :--- | :--- |
+| 指纹一致 | ♻️ 复用，正常打开 |
+| 指纹不一致（旧进程） | ⚠️ **拒绝静默复用**，退出码 2，提示用 `--restart` |
+| `--restart` | 校验进程确实是 `deploy_web.js` 后停掉，再用新代码拉起 |
+
+用户反馈「改了没变化 / 看不到新功能」时，**第一反应就是 `--restart`**，而不是让用户清浏览器缓存。
+
+**交付时必须告诉用户的三件事**：URL、PID、版本指纹、停止命令。日志路径 `~/.shrimp/skills/live-inspector/console.log`。
 
 **边界**：这是**按需启动**，不注册开机自启、不装守护进程；系统重启后自然消失。用户问「会不会自动启动」时，答案是不会——必须有人（人或 AI）执行命令。
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |

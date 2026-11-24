@@ -33,19 +33,40 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 
 | 场景 | 行为 |
 | :--- | :--- |
-| 端口已有控制台在跑 | **复用**，只打开页面，不再起第二个 |
+| 端口已有控制台在跑，且代码一致 | **复用**，只打开页面，不再起第二个 |
 | 端口空闲 | 后台拉起 `deploy_web.js`（`detached`，脱离进程组），等 `/api/initial` 就绪后打开浏览器 |
+| 端口已有控制台在跑，但跑的是旧代码 | **拒绝静默复用**（退出码 2），提示用 `--restart` |
 | 端口被别的程序占用 | 明确报错并提示换端口（会校验 `/api/initial` 确认是不是本控制台） |
+| `--restart` | 确认进程是 `deploy_web.js` 后停掉，再用当前磁盘代码拉起 |
 | `--stop` | 按记录的 PID 停掉本脚本启动的实例 |
 
 ```bash
 node scripts/console.js --port 6901        # 指定端口
 node scripts/console.js --no-open          # 只启动，不弹浏览器
+node scripts/console.js --restart          # 改完代码后重启，加载新版本
 node scripts/console.js --stop             # 停止
-node scripts/console.js --json             # 结构化输出（含 url/pid/log/stop）
+node scripts/console.js --json             # 结构化输出（含 url/pid/buildId/log/stop）
 ```
 
 产物：PID 记在 `~/.shrimp/skills/live-inspector/console.pid`，日志写到同目录 `console.log`。
+
+### 版本指纹与「改了没生效」
+
+`deploy_web.js` 的页面 HTML 与路由处理函数都在模块加载时固化进内存，**改文件后必须重启进程**才生效。`/api/initial` 因此会返回两个字段：
+
+| 字段 | 含义 |
+| :--- | :--- |
+| `buildId` | 该进程启动时算出的代码指纹（`deploy_web.js` + `common/**.js` 内容的 SHA1 前 10 位） |
+| `pid` | 进程号 |
+
+`console.js` 探测到端口有实例时，会把响应里的 `buildId` 与磁盘上现算的指纹比对：
+
+- 一致 → 复用；
+- 不一致（或旧版本没有该字段）→ 判定为「进程活着但跑的是旧代码」，**拒绝静默复用**，退出码 2，并提示 `--restart`。
+
+指纹用文件**内容**计算而非 mtime：同步/拷贝文件会刷新 mtime 但内容可能不变，用 mtime 会产生无意义的重启。
+
+这解决的就是「打开 6886 看不到新功能」这类问题——以前只能靠人肉发现端口上挂着的是十几分钟前启动的老进程。
 
 **仍然不会自动启动**：没有 postinstall、没有 launchd/systemd 守护，系统重启后消失。要「打开就有」，必须有人或 AI 显式执行上面的命令。
 
@@ -72,6 +93,7 @@ node scripts/console.js --json             # 结构化输出（含 url/pid/log/s
 | `POST /api/ones/write` | ONES 写入：`confirm=false` 预检，`confirm=true` 才落库 |
 | `POST /api/write/apollo\|es\|kafka\|mysql` | `confirm=false` 预检，`confirm=true` 才写入 |
 | `GET /api/apps` | 服务名候选清单（来自 service catalog） |
+| `GET /api/initial` | 页面初始化态；含 `buildId`（当前进程代码指纹）与 `pid`，供启动器判断版本是否过期 |
 | `GET /api/credential-list` | 凭据台账（只读元信息，不返回凭据值） |
 | `POST /api/credential/refresh` | 打开站点并回读 Cookie，登录完成后自动落盘 |
 | `POST /api/credential/open` / `save` / `clear` / `probe` | 打开登录页（用户窗口的普通标签页） / 手动粘贴 / 清除 / 探活 |

@@ -40,6 +40,7 @@ import {
   saveOnesCookie
 } from './common/credentials.js';
 import { saveDinsightCredentials } from './common/dinsight.js';
+import { computeBuildId } from './common/build_id.js';
 import { getBrowserCookies, cookiesToHeader } from './credential_relay.js';
 import { ensureBridge, executeCommand } from './cli/lib/cli.mjs';
 
@@ -48,6 +49,9 @@ const __dirname = path.dirname(__filename);
 const SKILL_ROOT = path.resolve(__dirname, '..');
 const CI_DEPLOY = path.join(__dirname, 'ci_deploy.js');
 const SHRIMP_DIR = path.join(os.homedir(), '.shrimp', 'skills', 'live-inspector');
+// 本次进程加载的代码指纹：只在启动时算一次，改文件后不重启就不会变。
+// 启动器拿它和磁盘上的指纹比对，用来识别「进程活着但跑的是旧代码」。
+const BUILD_ID = computeBuildId(__dirname);
 const STATE_FILE = path.join(SHRIMP_DIR, 'deploy_ui_state.json');
 const JOB_DIR = path.join(SHRIMP_DIR, 'deploy_jobs');
 const HOME = os.homedir();
@@ -3566,7 +3570,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && route === '/api/initial') {
       const lastProject = state.lastProject || Object.keys(state.branches)[0] || '';
-      return json(res, 200, { lastProject });
+      // buildId 让启动器能判断这个进程跑的是不是当前磁盘上的代码
+      return json(res, 200, { lastProject, buildId: BUILD_ID, pid: process.pid });
     }
 
     if (req.method === 'GET' && route === '/api/apps') {
