@@ -1,6 +1,6 @@
-# 🖥️ 测试环境控制台（部署 · 日志 · Apollo · 写操作 · 凭据）
+# 🖥️ 测试环境控制台（部署 · 日志 · Apollo · ONES · 写操作 · 凭据）
 
-面向人工操作的本地一站式控制台，按 Tab 分为首页（能力导航）、部署、日志检索、Apollo 配置、写操作、凭据六块。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
+面向人工操作的本地一站式控制台，按 Tab 分为首页（能力导航）、部署、日志检索、Apollo 配置、ONES 研发、写操作、凭据七块。AI 后台执行 `node scripts/deploy_web.js [options]`，默认地址 `http://127.0.0.1:6886`。
 
 | Tab | 能力 | 复用的脚本 |
 | :--- | :--- | :--- |
@@ -8,6 +8,7 @@
 | **部署** | 合并 QA → 推送 → Shipwright 构建 → 下发测试环境；右侧「最近任务」可回看任意历史日志 | `ci_deploy.js` |
 | **日志检索** | 测试环境容器日志 / 生产 FAST-Kibana（只读），按服务+关键词+级别+时间窗查 | `test_log_query.js` / `fast_query.js` |
 | **Apollo 配置** | 配置速查（支持 test/preview/prod 只读）与配置项发布轨迹 | `apollo_query.js` / `apollo_history.js` |
+| **ONES 研发** | 我的排期（默认本周，可翻周）、需求详情、需求检索、缺陷检索、迭代/项目；写入子页含新建需求/缺陷、改排期、移入迭代、状态流转 | `ones_query.js` / `ones_modify.js` |
 | **写操作** | Apollo 改值与发布、ES 文档改删、Kafka 投递、测试库 SQL —— 全部「预检 → 确认」两步 | `apollo_modify.js` / `es_modify.js` / `kafka_send.js` / `test_mysql_query.js` |
 | **凭据** | 17 项 Cookie / Token 台账（4 个分组）：状态、更新时间、Cookie 名；一键刷新（需登录时在你当前窗口打开普通标签页，登录后自动回读落盘）、手动粘贴、清除、探活 | `credential_relay.js`（本地桥接） |
 
@@ -44,6 +45,8 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 | `POST /api/verify` | 部署后验活：拉近 N 分钟 `ERROR` 日志 |
 | `POST /api/logs` | `source=test` 走 Loki，`source=prod` 走 FAST（只读） |
 | `POST /api/apollo/query` / `/history` | 配置速查 / 发布轨迹 |
+| `POST /api/ones/query` | ONES 只读：`schedule` / `req` / `reqs` / `bugs` / `iterations` / `projects` |
+| `POST /api/ones/write` | ONES 写入：`confirm=false` 预检，`confirm=true` 才落库 |
 | `POST /api/write/apollo\|es\|kafka\|mysql` | `confirm=false` 预检，`confirm=true` 才写入 |
 | `GET /api/apps` | 服务名候选清单（来自 service catalog） |
 | `GET /api/credential-list` | 凭据台账（只读元信息，不返回凭据值） |
@@ -52,10 +55,14 @@ node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的�
 
 **环境锁死**：每个写操作路由都在服务端硬钉测试环境（`-e test` / `--env TEST`），不接受前端传入的其他环境值，生产写入在后端就被物理拦截。
 
+**ONES 例外（协作系统）**：ONES 没有测试环境，全部是真实研发数据，因此不受上面这条「生产只读」约束。它的写入仍走两阶段：`confirm=false` 只跑 `ones_modify.js` 的 Dry-Run 并回显预审单，`confirm=true` 才带 `--confirm`。页面里对该 Tab 单独标注了这一点，避免与「仅测试环境」的全局说明混淆。
+
 **两步确认的落地方式**：
-- Apollo / ES / MySQL 走脚本原生 Dry-Run（不带 `--confirm` 只输出 Diff）；
+- Apollo / ES / MySQL / ONES 走脚本原生 Dry-Run（不带 `--confirm` 只输出 Diff）；
 - Kafka 没有原生 Dry-Run，`confirm=false` 时服务端只回显将要发送的 topic / key / 消息体；
 - MySQL 的 `SELECT/SHOW/DESC/EXPLAIN` 视为只读直接执行，其余语句必须 `confirm=true`，且服务端只允许单条语句，防止一次提交塞进多段写入绕过确认。
+
+**ONES 缺陷标题搜索的坑**：`get_bugs` 服务端会把 `summary` / `kw` / `title` / `search` 全部静默忽略并返回全库 3.5 万条，且每页固定 10 条、`limit` 不生效。所以 `listBugs` 改成翻页扫描最近 600 条再本地做子串匹配，返回里的 `scanned` 就是实际扫描量——更早的缺陷搜不到，这类情况请改用 ID 或处理人。
 
 ---
 

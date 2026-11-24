@@ -141,7 +141,10 @@ node scripts/ones_query.js bugs --id 10413977
 
 接口：`POST /api/bug/get_bugs`
 
-生效参数：`id`（精确）、`summary`（模糊）、`resolver`、`sprint_id`、`require_ids[]`、`page`、`limit`。
+生效参数：`id`（精确）、`resolver`、`sprint_id`、`require_ids[]`、`page`。
+
+⚠️ **标题模糊搜索服务端不支持**：`summary` / `kw` / `title` / `search` / `summary_like` 全部被**静默忽略**，不报错，直接返回全库 3.5 万条。脚本因此改为本地扫描：从最新往旧翻页（服务端每页固定 10 条，`limit` 不生效），默认扫最近 600 条，再按关键词做本地子串匹配。返回里的 `scanned` 字段表示实际扫了多少条——**关键词只在扫描范围内有效**，更早的缺陷查不到，这时候请改用 `--id` 或 `--resolver`。
+
 缺陷状态是英文枚举：`open / reopen / processed / rejected / deferred / fixed / closed`；`category` 是中文枚举（见 `enums bug`）。
 
 ### 2.6 迭代（Sprint）与项目

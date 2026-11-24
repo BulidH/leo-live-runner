@@ -1129,7 +1129,9 @@ const SCRIPTS = {
   apolloModify: path.join(__dirname, 'apollo_modify.js'),
   esModify: path.join(__dirname, 'es_modify.js'),
   kafkaSend: path.join(__dirname, 'kafka_send.js'),
-  mysqlQuery: path.join(__dirname, 'test_mysql_query.js')
+  mysqlQuery: path.join(__dirname, 'test_mysql_query.js'),
+  onesQuery: path.join(__dirname, 'ones_query.js'),
+  onesModify: path.join(__dirname, 'ones_modify.js')
 };
 
 // 跑一个脚本，返回 {ok, code, stdout, stderr, json}
@@ -1344,6 +1346,7 @@ function buildPage(projects, appItems) {
     <button role="tab" data-tab="deploy" aria-selected="false">部署</button>
     <button role="tab" data-tab="logs" aria-selected="false">日志检索</button>
     <button role="tab" data-tab="apollo" aria-selected="false">Apollo 配置</button>
+    <button role="tab" data-tab="ones" aria-selected="false">ONES 研发</button>
     <button role="tab" data-tab="write" aria-selected="false">写操作</button>
     <button role="tab" data-tab="credentials" aria-selected="false">凭据</button>
   </nav>
@@ -1602,6 +1605,199 @@ function buildPage(projects, appItems) {
     </div>
   </section>
 
+  <!-- ============================ ONES 研发 ============================ -->
+  <section class="page" id="page-ones">
+    <div class="warnbox" style="border-color:rgba(59,130,246,.45)">
+      ℹ️ <b>ONES 是协作系统，不受「生产只读」约束</b>。查询直接返回；新建需求 / 缺陷、改排期属于真实研发数据，
+      必须先在「写入」子页预检看到 Diff，再点「确认提交」。
+    </div>
+
+    <div class="subtabs" id="onesTabs">
+      <button class="on" data-o="schedule">我的排期</button>
+      <button data-o="req">需求详情</button>
+      <button data-o="reqs">需求检索</button>
+      <button data-o="bugs">缺陷检索</button>
+      <button data-o="meta">迭代 / 项目</button>
+      <button data-o="write">写入</button>
+    </div>
+
+    <div class="card osec" id="o-schedule">
+      <div class="grid">
+        <div class="field">
+          <label>起始日期</label>
+          <input id="oSchedFrom" type="date" />
+        </div>
+        <div class="field">
+          <label>结束日期</label>
+          <input id="oSchedTo" type="date" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oSchedQuery">查询排期</button>
+        <button class="ghost" id="oSchedPrev">上一周</button>
+        <button class="ghost" id="oSchedNext">下一周</button>
+        <span class="status" id="oSchedStatus">就绪</span>
+      </div>
+      <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。</div>
+    </div>
+
+    <div class="card osec" id="o-req" style="display:none">
+      <div class="grid">
+        <div class="field" style="grid-column:1/-1">
+          <label>需求 ID 或标题关键词</label>
+          <input id="oReqKey" placeholder="如 50564297 / 钥匙箱" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oReqQuery">查询需求</button>
+        <span class="status" id="oReqStatus">就绪</span>
+      </div>
+      <div class="hint">状态、优先级、PM、迭代、层级、排期、全员估时、关联缺陷、可流转事件。</div>
+    </div>
+
+    <div class="card osec" id="o-reqs" style="display:none">
+      <div class="grid">
+        <div class="field"><label>迭代（ID 或标题，可空）</label><input id="oReqsSprint" placeholder="如 IoT-2026-11-24" /></div>
+        <div class="field"><label>PM 账号（可空）</label><input id="oReqsPm" placeholder="如 sunzehao003" /></div>
+        <div class="field"><label>标题关键词（可空）</label><input id="oReqsTitle" placeholder="如 钥匙箱" /></div>
+        <div class="field"><label>层级（可空）</label><input id="oReqsLevel" placeholder="方向/业务线/系统/子系统" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oReqsQuery">查询需求列表</button>
+        <span class="status" id="oReqsStatus">就绪</span>
+      </div>
+      <div class="hint">不传过滤条件会返回全库 44 万+ 条，至少填一项。</div>
+    </div>
+
+    <div class="card osec" id="o-bugs" style="display:none">
+      <div class="grid">
+        <div class="field"><label>缺陷 ID（可空）</label><input id="oBugsId" placeholder="如 10413977" /></div>
+        <div class="field"><label>处理人（姓名 / 账号，可空）</label><input id="oBugsResolver" placeholder="如 孙泽浩" /></div>
+        <div class="field"><label>标题关键词（可空）</label><input id="oBugsSummary" placeholder="如 钥匙" /></div>
+        <div class="field"><label>关联需求 ID（可空）</label><input id="oBugsReq" placeholder="如 50564297" /></div>
+        <div class="field"><label>条数</label><input id="oBugsLimit" value="10" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oBugsQuery">查询缺陷</button>
+        <span class="status" id="oBugsStatus">就绪</span>
+      </div>
+    </div>
+
+    <div class="card osec" id="o-meta" style="display:none">
+      <div class="grid">
+        <div class="field"><label>迭代关键词（可空）</label><input id="oMetaIter" placeholder="如 IoT-2026-11" /></div>
+        <div class="field"><label>项目关键词（可空）</label><input id="oMetaProj" placeholder="如 惠居" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oMetaQuery">查询迭代 / 项目</button>
+        <span class="status" id="oMetaStatus">就绪</span>
+      </div>
+    </div>
+
+    <div class="card osec" id="o-write" style="display:none">
+      <div class="hint" style="color:#fbbf24;margin-top:0">
+        ⚠️ ONES 没有测试环境，这里的写入直接作用于<b>真实研发数据</b>。两步走：预检只算 Diff 不落库 → 确认提交才写入。
+      </div>
+      <div class="subtabs" id="onesWriteTabs">
+        <button class="on" data-ow="req">新建需求</button>
+        <button data-ow="bug">新建缺陷</button>
+        <button data-ow="sched">调整排期</button>
+        <button data-ow="move">移入迭代</button>
+        <button data-ow="adv">状态流转</button>
+      </div>
+
+      <div class="card wsec2" id="ow-req" style="margin-bottom:0;padding:0;border:none;background:transparent">
+        <div class="grid">
+          <div class="field" style="grid-column:1/-1"><label>需求标题</label><input id="owReqTitle" placeholder="如 【钥匙箱三期】扫码开门" /></div>
+          <div class="field"><label>层级</label><input id="owReqLevel" value="惠居技术中心/惠居B端/惠居IoT/IoT系统" /></div>
+          <div class="field"><label>关联项目</label><input id="owReqProject" placeholder="如 惠居IoT项目" /></div>
+          <div class="field"><label>产品经理</label><input id="owReqPm" placeholder="姓名或账号，如 孙泽浩" /></div>
+          <div class="field"><label>迭代（可空）</label><input id="owReqSprint" placeholder="如 IoT-2026-11-24" /></div>
+          <div class="field"><label>优先级</label><select id="owReqPriority"><option>P2</option><option>P1</option><option>P0</option></select></div>
+          <div class="field"><label>需求类型</label><select id="owReqType"><option>产品需求</option><option>技术需求</option><option>埋点类需求</option><option>事务型需求</option><option>线上问题</option></select></div>
+          <div class="field" style="grid-column:1/-1"><label>描述（可空）</label><textarea id="owReqDesc" placeholder="需求背景与目标"></textarea></div>
+          <div class="field" style="grid-column:1/-1;flex-direction:row;align-items:center;gap:8px">
+            <input type="checkbox" id="owReqSafety" checked style="width:auto" />
+            <label style="margin:0">声明不涉及安全风险业务功能（新建需求的必填项）</label>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="owReqPre">预检（不写入）</button>
+          <button class="danger" id="owReqCommit" disabled>确认创建</button>
+          <span class="status" id="owReqStatus">就绪</span>
+        </div>
+      </div>
+
+      <div class="card wsec2" id="ow-bug" style="display:none;margin-bottom:0;padding:0;border:none;background:transparent">
+        <div class="grid">
+          <div class="field" style="grid-column:1/-1"><label>缺陷标题</label><input id="owBugSummary" placeholder="如 OTA 升级后设备离线" /></div>
+          <div class="field"><label>处理人</label><input id="owBugResolver" placeholder="姓名或账号，如 孙泽浩" /></div>
+          <div class="field"><label>关联需求 ID（可空）</label><input id="owBugReq" placeholder="如 50564297" /></div>
+          <div class="field"><label>优先级</label><select id="owBugPriority"><option>P2</option><option>P1</option><option>P0</option></select></div>
+          <div class="field"><label>缺陷类型</label><select id="owBugType"><option>测试阶段</option><option>开发阶段</option><option>产品阶段</option><option>showcase阶段</option><option>用户验收阶段（UAT)</option></select></div>
+          <div class="field"><label>发现方式</label><select id="owBugFindWay"><option>手工测试</option><option>自动化测试</option><option>CR</option><option>监控报警</option><option>流量回放</option></select></div>
+          <div class="field"><label>工时（天，可空）</label><input id="owBugHours" placeholder="如 0.2" /></div>
+          <div class="field"><label>层级（可空，缺省用 IoT 默认）</label><input id="owBugLevel" placeholder="方向/业务线/系统/子系统" /></div>
+          <div class="field" style="grid-column:1/-1"><label>描述（可空）</label><textarea id="owBugDesc" placeholder="复现步骤 / 期望结果"></textarea></div>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="owBugPre">预检（不写入）</button>
+          <button class="danger" id="owBugCommit" disabled>确认创建</button>
+          <span class="status" id="owBugStatus">就绪</span>
+        </div>
+      </div>
+
+      <div class="card wsec2" id="ow-sched" style="display:none;margin-bottom:0;padding:0;border:none;background:transparent">
+        <div class="grid">
+          <div class="field"><label>需求 ID</label><input id="owSchedId" placeholder="如 50564297" /></div>
+          <div class="field"><label>计划上线</label><input id="owSchedOnline" placeholder="2026-12-20 23:59:59" /></div>
+          <div class="field"><label>开发开始</label><input id="owSchedDevStart" placeholder="2026-12-01" /></div>
+          <div class="field"><label>开发结束</label><input id="owSchedDevEnd" placeholder="2026-12-05" /></div>
+          <div class="field"><label>测试开始</label><input id="owSchedTestStart" placeholder="2026-12-08" /></div>
+          <div class="field"><label>测试结束</label><input id="owSchedTestEnd" placeholder="2026-12-12" /></div>
+          <div class="field"><label>计划提测</label><input id="owSchedSubmitTest" placeholder="2026-12-06 23:59:59" /></div>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="owSchedPre">预检（Diff）</button>
+          <button class="danger" id="owSchedCommit" disabled>确认提交</button>
+          <span class="status" id="owSchedStatus">就绪</span>
+        </div>
+      </div>
+
+      <div class="card wsec2" id="ow-move" style="display:none;margin-bottom:0;padding:0;border:none;background:transparent">
+        <div class="grid">
+          <div class="field"><label>需求 ID（多个用逗号分隔）</label><input id="owMoveIds" placeholder="如 50564297,50566423" /></div>
+          <div class="field"><label>目标迭代</label><input id="owMoveSprint" placeholder="如 IoT-2026-11-24" /></div>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="owMovePre">预检</button>
+          <button class="danger" id="owMoveCommit" disabled>确认迁移</button>
+          <span class="status" id="owMoveStatus">就绪</span>
+        </div>
+      </div>
+
+      <div class="card wsec2" id="ow-adv" style="display:none;margin-bottom:0;padding:0;border:none;background:transparent">
+        <div class="grid">
+          <div class="field"><label>对象类型</label><select id="owAdvKind"><option value="requirement">需求</option><option value="bug">缺陷</option></select></div>
+          <div class="field"><label>ID</label><input id="owAdvId" placeholder="如 50565445" /></div>
+          <div class="field"><label>流转事件</label><input id="owAdvEvent" placeholder="如 评审 / 提测 / 已处理 / 关闭 / 删除" /></div>
+        </div>
+        <div class="hint">可用事件取决于对象当前状态，预检时会列出来。删除 / 取消标红为高危，需额外确认。</div>
+        <div class="actions">
+          <button class="ghost" id="owAdvPre">预检</button>
+          <button class="danger" id="owAdvCommit" disabled>确认流转</button>
+          <span class="status" id="owAdvStatus">就绪</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="oResultTitle">结果</h2>
+      <div id="oResult"><div class="combo-empty">尚未查询</div></div>
+      <pre class="out" id="oRaw" style="display:none"></pre>
+    </div>
+  </section>
+
   <!-- ============================ 写操作 ============================ -->
   <section class="page" id="page-write">
     <div class="warnbox">
@@ -1824,7 +2020,7 @@ function post(url, body) {
 }
 
 // ---------------------------------------------------------------- tabs ----
-const TABS = ['home', 'deploy', 'logs', 'apollo', 'write', 'credentials'];
+const TABS = ['home', 'deploy', 'logs', 'apollo', 'ones', 'write', 'credentials'];
 
 function showTab(name) {
   if (!TABS.includes(name)) name = 'home';
@@ -1851,6 +2047,8 @@ function showTab(name) {
   }
   // 凭据台账每次进入都重新扫描，保证看到的是磁盘上的最新状态
   if (name === 'credentials') loadCredentials();
+  // ONES 首次进入自动查本周排期
+  if (name === 'ones') onesOnEnter();
 }
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-tab]');
@@ -2671,6 +2869,407 @@ $('wDbCommit').addEventListener('click', async () => {
   }
 });
 
+// ================================================================== ONES ====
+// 协作系统，不受「生产只读」约束；查询直接返回，写入仍两阶段（预检 → 确认）。
+
+let onesEntered = false;
+
+function onesDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function onesWeekRange(offsetWeeks) {
+  const now = new Date();
+  const dow = (now.getDay() + 6) % 7;            // 周一为一周起点
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + offsetWeeks * 7);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  return { from: onesDate(monday), to: onesDate(sunday) };
+}
+
+let onesWeekOffset = 0;
+
+function onesOnEnter() {
+  if (!onesEntered) {
+    onesEntered = true;
+    $('onesTabs').querySelector('button[data-o="schedule"]').click();
+  }
+  if (!$('oSchedFrom').value) onesApplyWeek(0);
+}
+
+function onesApplyWeek(offset) {
+  onesWeekOffset = offset;
+  const r = onesWeekRange(offset);
+  $('oSchedFrom').value = r.from;
+  $('oSchedTo').value = r.to;
+}
+
+function onesOut(html) {
+  const el = $('oResult');
+  el.innerHTML = html;
+}
+
+function onesRaw(obj) {
+  const el = $('oRaw');
+  if (!obj) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = '';
+  el.textContent = JSON.stringify(obj, null, 2);
+}
+
+function onesStatus(id, text, cls) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function onesTable(headers, rows) {
+  if (!rows.length) return '<div class="combo-empty">无数据</div>';
+  let h = '<table><thead><tr>';
+  headers.forEach(x => { h += '<th' + (x.w ? ' style="width:' + x.w + '"' : '') + '>' + escHtml(x.t) + '</th>'; });
+  h += '</tr></thead><tbody>';
+  rows.forEach(r => {
+    h += '<tr>';
+    r.forEach(c => { h += '<td>' + (c === null || c === undefined ? '—' : String(c)) + '</td>'; });
+    h += '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function onesLink(url, text) {
+  if (!url) return escHtml(text || '—');
+  return '<a href="' + escHtml(url) + '" target="_blank" rel="noopener">' + escHtml(text || url) + '</a>';
+}
+
+// ---- 子页切换 ----
+$('onesTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-o]');
+  if (!b) return;
+  document.querySelectorAll('#onesTabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('#page-ones .osec').forEach(s => {
+    s.style.display = s.id === 'o-' + b.dataset.o ? '' : 'none';
+  });
+});
+
+// ---- 我的排期 ----
+$('oSchedPrev').addEventListener('click', () => { onesApplyWeek(onesWeekOffset - 1); $('oSchedQuery').click(); });
+$('oSchedNext').addEventListener('click', () => { onesApplyWeek(onesWeekOffset + 1); $('oSchedQuery').click(); });
+$('oSchedQuery').addEventListener('click', async () => {
+  const from = $('oSchedFrom').value, to = $('oSchedTo').value;
+  if (!from || !to) { onesStatus('oSchedStatus', '请选择起止日期', 'error'); return; }
+  onesStatus('oSchedStatus', '查询中…', 'running');
+  try {
+    const r = await post('/api/ones/query', { cmd: 'schedule', from, to });
+    if (!r.ok) throw new Error(r.error || '查询失败');
+    const d = (r.json && r.json.data) || {};
+    const items = d.items || [];
+    $('oResultTitle').textContent = '我的排期 · ' + from + ' ~ ' + to;
+    if (!items.length) { onesOut('<div class="combo-empty">该时间窗内没有排期</div>'); onesStatus('oSchedStatus', '无数据', 'success'); onesRaw(null); return; }
+
+    // 按需求聚合
+    const agg = {};
+    items.forEach(it => {
+      const k = it.requireId;
+      if (!agg[k]) agg[k] = { requireId: k, title: it.title, sprintTitle: it.sprintTitle, url: it.url, hours: 0, actions: new Set(), start: it.start, end: it.end };
+      agg[k].hours += Number(it.manHours) || 0;
+      if (it.action) agg[k].actions.add(it.action);
+      if (it.start && (!agg[k].start || it.start < agg[k].start)) agg[k].start = it.start;
+      if (it.end && (!agg[k].end || it.end > agg[k].end)) agg[k].end = it.end;
+    });
+    const aggRows = Object.values(agg).sort((a, b) => b.hours - a.hours);
+
+    let html = '<div class="hint" style="margin:0 0 10px">共 ' + items.length + ' 条估时 / ' + aggRows.length + ' 个需求</div>';
+    html += onesTable(
+      [{ t: '需求 ID', w: '90px' }, { t: '迭代', w: '130px' }, { t: '角色' }, { t: '动作' }, { t: '工期', w: '180px' }, { t: '人天', w: '60px' }, { t: '需求标题' }],
+      items.map(it => [
+        onesLink(it.url, it.requireId),
+        escHtml(it.sprintTitle || '—'),
+        escHtml(it.role || '—'),
+        escHtml(it.action || '—'),
+        escHtml((it.start || '—') + ' ~ ' + (it.end || '—')),
+        escHtml(it.manHours),
+        escHtml(it.title || '')
+      ])
+    );
+    html += '<h2 style="margin:22px 0 10px">按需求汇总</h2>';
+    html += onesTable(
+      [{ t: '需求 ID', w: '90px' }, { t: '迭代', w: '130px' }, { t: '窗口', w: '180px' }, { t: '总人天', w: '70px' }, { t: '动作' }, { t: '需求标题' }],
+      aggRows.map(a => [
+        onesLink(a.url, a.requireId),
+        escHtml(a.sprintTitle || '—'),
+        escHtml((a.start || '—') + ' ~ ' + (a.end || '—')),
+        escHtml(a.hours),
+        escHtml([...a.actions].join(' / ')),
+        escHtml(a.title || '')
+      ])
+    );
+    onesOut(html);
+    onesRaw(r.json);
+    onesStatus('oSchedStatus', '完成', 'success');
+  } catch (e) {
+    onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+    onesStatus('oSchedStatus', '失败', 'error');
+  }
+});
+
+// ---- 需求详情 ----
+$('oReqQuery').addEventListener('click', async () => {
+  const key = $('oReqKey').value.trim();
+  if (!key) { onesStatus('oReqStatus', '请输入需求 ID 或关键词', 'error'); return; }
+  onesStatus('oReqStatus', '查询中…', 'running');
+  try {
+    const r = await post('/api/ones/query', { cmd: 'req', key });
+    if (!r.ok) throw new Error(r.error || '查询失败');
+    const d = (r.json && r.json.data) || {};
+    const q = d.requirement || {};
+    const sc = d.schedule || {};
+    const est = (d.estimates && d.estimates.estimates) || [];
+    const bugs = d.bugs || [];
+    $('oResultTitle').textContent = '需求 ' + (q.id || '') + (q.title ? ' · ' + q.title : '');
+
+    const info = [
+      ['状态', q.status], ['优先级', q.priority], ['类型', (q.type || '—') + ' / ' + (q.label || '—')],
+      ['迭代', (q.sprintTitle || '—') + (q.sprintId ? ' (' + q.sprintId + ')' : '')],
+      ['层级', [q.level && q.level.businessDirection, q.level && q.level.businessLine, q.level && q.level.system, q.level && q.level.subSystem].filter(Boolean).join(' / ') || '—'],
+      ['产品经理', (q.pm || []).join('、') || '—'],
+      ['RD / QA / FE', [(q.rd || []).join('、'), (q.qa || []).join('、'), (q.fe || []).join('、')].map(x => x || '—').join(' / ')],
+      ['链接', onesLink(q.url, q.url)]
+    ];
+    let html = '<table><tbody>';
+    info.forEach(([k, v]) => { html += '<tr><th style="width:130px">' + escHtml(k) + '</th><td>' + (k === '链接' ? v : escHtml(v)) + '</td></tr>'; });
+    html += '</tbody></table>';
+
+    html += '<h2 style="margin:22px 0 10px">排期</h2>';
+    html += onesTable([{ t: '阶段' }, { t: '时间' }], [
+      ['开发', (sc.developStart || '—') + ' ~ ' + (sc.developEnd || '—')],
+      ['测试', (sc.testStart || '—') + ' ~ ' + (sc.testEnd || '—')],
+      ['计划提测', sc.submitTest || '—'],
+      ['计划上线', sc.online || '—'],
+      ['实际提测', sc.realSubmitTest || '—'],
+      ['实际上线', sc.realOnline || '—']
+    ]);
+
+    if (est.length) {
+      html += '<h2 style="margin:22px 0 10px">估时明细（' + est.length + ' 条）</h2>';
+      html += onesTable([{ t: '角色' }, { t: '成员' }, { t: '动作' }, { t: '人天' }, { t: '起止' }, { t: '完成' }],
+        est.map(e => [escHtml(e.role || '—'), escHtml(e.member || '—'), escHtml(e.action || '—'), escHtml(e.manHours), escHtml((e.start || '—') + ' ~ ' + (e.end || '—')), e.finished ? '✅' : '—']));
+    }
+
+    if (bugs.length) {
+      html += '<h2 style="margin:22px 0 10px">关联缺陷（' + bugs.length + ' 条）</h2>';
+      html += onesTable([{ t: 'ID', w: '90px' }, { t: '状态' }, { t: '优先级' }, { t: '处理人' }, { t: '标题' }],
+        bugs.map(b => [onesLink(b.url, b.id), escHtml(b.status || '—'), escHtml(b.priority || '—'), escHtml(b.resolver || '—'), escHtml(b.summary || '')]));
+    }
+
+    const tr = q.transitions || [];
+    if (tr.length) {
+      html += '<h2 style="margin:22px 0 10px">当前可流转事件</h2>';
+      html += onesTable([{ t: '事件' }, { t: '目标状态' }, { t: '类型' }],
+        tr.map(t => [escHtml(t.event), escHtml(t.target || '—'), escHtml(t.type || '—')]));
+    }
+
+    onesOut(html);
+    onesRaw(r.json);
+    onesStatus('oReqStatus', '完成', 'success');
+  } catch (e) {
+    onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+    onesStatus('oReqStatus', '失败', 'error');
+  }
+});
+
+// ---- 需求检索 ----
+$('oReqsQuery').addEventListener('click', async () => {
+  const body = {
+    cmd: 'reqs',
+    sprint: $('oReqsSprint').value.trim(),
+    pm: $('oReqsPm').value.trim(),
+    title: $('oReqsTitle').value.trim(),
+    level: $('oReqsLevel').value.trim(),
+    limit: 50
+  };
+  if (!body.sprint && !body.pm && !body.title && !body.level) {
+    onesStatus('oReqsStatus', '至少填一个过滤条件', 'error'); return;
+  }
+  onesStatus('oReqsStatus', '查询中…', 'running');
+  try {
+    const r = await post('/api/ones/query', body);
+    if (!r.ok) throw new Error(r.error || '查询失败');
+    const d = (r.json && r.json.data) || {};
+    const items = d.items || [];
+    $('oResultTitle').textContent = '需求检索（命中 ' + (d.total || items.length) + ' 条，展示 ' + items.length + ' 条）';
+    onesOut(onesTable(
+      [{ t: 'ID', w: '90px' }, { t: '状态' }, { t: '优先级' }, { t: '迭代', w: '130px' }, { t: 'PM' }, { t: '标题' }],
+      items.map(it => [
+        onesLink(it.url, it.id),
+        escHtml(it.status || '—'),
+        escHtml(it.priority || '—'),
+        escHtml(it.sprintTitle || '—'),
+        escHtml((it.pm || []).join('、') || '—'),
+        escHtml(it.title || '')
+      ])
+    ));
+    onesRaw(r.json);
+    onesStatus('oReqsStatus', '完成', 'success');
+  } catch (e) {
+    onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+    onesStatus('oReqsStatus', '失败', 'error');
+  }
+});
+
+// ---- 缺陷检索 ----
+$('oBugsQuery').addEventListener('click', async () => {
+  const body = {
+    cmd: 'bugs',
+    id: $('oBugsId').value.trim(),
+    resolver: $('oBugsResolver').value.trim(),
+    summary: $('oBugsSummary').value.trim(),
+    requireId: $('oBugsReq').value.trim(),
+    limit: Number($('oBugsLimit').value) || 10
+  };
+  onesStatus('oBugsStatus', '查询中…', 'running');
+  try {
+    const r = await post('/api/ones/query', body);
+    if (!r.ok) throw new Error(r.error || '查询失败');
+    const d = (r.json && r.json.data) || {};
+    const items = d.items || [];
+    $('oResultTitle').textContent = '缺陷检索（命中 ' + (d.total || items.length) + ' 条，展示 ' + items.length + ' 条）';
+    onesOut(onesTable(
+      [{ t: 'ID', w: '90px' }, { t: '状态' }, { t: '优先级' }, { t: '类型' }, { t: '处理人' }, { t: '关联需求' }, { t: '标题' }],
+      items.map(it => [
+        onesLink(it.url, it.id),
+        escHtml(it.status || '—'),
+        escHtml(it.priority || '—'),
+        escHtml(it.category || '—'),
+        escHtml(it.resolver || '—'),
+        it.requireId ? onesLink('https://ones.ke.com/project/requirement/' + it.requireId, it.requireId) : '—',
+        escHtml(it.summary || '')
+      ])
+    ));
+    onesRaw(r.json);
+    onesStatus('oBugsStatus', '完成', 'success');
+  } catch (e) {
+    onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+    onesStatus('oBugsStatus', '失败', 'error');
+  }
+});
+
+// ---- 迭代 / 项目 ----
+$('oMetaQuery').addEventListener('click', async () => {
+  onesStatus('oMetaStatus', '查询中…', 'running');
+  try {
+    const [ri, rp] = await Promise.all([
+      post('/api/ones/query', { cmd: 'iterations', keyword: $('oMetaIter').value.trim() }),
+      post('/api/ones/query', { cmd: 'projects', keyword: $('oMetaProj').value.trim() })
+    ]);
+    const iters = (ri.json && ri.json.data && ri.json.data.items) || [];
+    const projs = (rp.json && rp.json.data && rp.json.data.items) || [];
+    $('oResultTitle').textContent = '迭代 / 项目';
+    let html = '<h2 style="margin:0 0 10px">迭代（' + iters.length + '）</h2>';
+    html += onesTable([{ t: 'ID', w: '100px' }, { t: '状态' }, { t: '标题' }],
+      iters.map(i => [onesLink(i.url, i.id), escHtml(i.statusLabel || '—'), escHtml(i.title || '')]));
+    html += '<h2 style="margin:22px 0 10px">项目（' + projs.length + '）</h2>';
+    html += onesTable([{ t: 'm_project_id', w: '110px' }, { t: 'ID' }, { t: '状态' }, { t: '标题' }],
+      projs.map(p => [escHtml(p.mProjectId), onesLink(p.url, p.id), escHtml(p.status || '—'), escHtml(p.title || '')]));
+    onesOut(html);
+    onesRaw({ iterations: ri.json, projects: rp.json });
+    onesStatus('oMetaStatus', '完成', 'success');
+  } catch (e) {
+    onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+    onesStatus('oMetaStatus', '失败', 'error');
+  }
+});
+
+// ---- 写入子页切换 ----
+$('onesWriteTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-ow]');
+  if (!b) return;
+  document.querySelectorAll('#onesWriteTabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('#o-write .wsec2').forEach(s => {
+    s.style.display = s.id === 'ow-' + b.dataset.ow ? '' : 'none';
+  });
+});
+
+// 统一的 ONES 写入执行：pre = 预检按钮 id，commit = 确认按钮 id，status = 状态 id
+function onesWrite({ cmd, payload, pre, commit, status, title }) {
+  const run = async (confirm) => {
+    const b = typeof payload === 'function' ? payload() : payload;
+    if (b === null) return;
+    onesStatus(status, confirm ? '提交中…' : '预检中…', 'running');
+    $(commit).disabled = true;
+    try {
+      const r = await post('/api/ones/write', { cmd, ...b, confirm });
+      const out = (r.stdout || '').trim() || (r.error || '');
+      $('oResultTitle').textContent = title + (confirm ? ' · 提交结果' : ' · 预检');
+      onesOut('<pre class="out" style="margin:0">' + escHtml(out) + '</pre>');
+      onesRaw(r.json);
+      if (!r.ok) {
+        onesStatus(status, confirm ? '提交失败' : '预检失败', 'error');
+        // 预检失败时也要解锁，方便改参数重试
+        $(commit).disabled = true;
+        return;
+      }
+      if (confirm) {
+        onesStatus(status, '已提交', 'success');
+        toast('已提交到 ONES', 'ok');
+      } else {
+        onesStatus(status, '预检完成，请核对上面的预审单', 'success');
+        $(commit).disabled = false;
+      }
+    } catch (e) {
+      onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
+      onesStatus(status, '失败', 'error');
+      $(commit).disabled = true;
+    }
+  };
+  $(pre).addEventListener('click', () => run(false));
+  $(commit).addEventListener('click', () => run(true));
+}
+
+onesWrite({
+  cmd: 'create-req', pre: 'owReqPre', commit: 'owReqCommit', status: 'owReqStatus', title: '新建需求',
+  payload: () => ({
+    title: $('owReqTitle').value.trim(), level: $('owReqLevel').value.trim(),
+    project: $('owReqProject').value.trim(), pm: $('owReqPm').value.trim(),
+    sprint: $('owReqSprint').value.trim(), priority: $('owReqPriority').value,
+    type: $('owReqType').value, desc: $('owReqDesc').value.trim(),
+    withSafetyFunc: $('owReqSafety').checked
+  })
+});
+
+onesWrite({
+  cmd: 'create-bug', pre: 'owBugPre', commit: 'owBugCommit', status: 'owBugStatus', title: '新建缺陷',
+  payload: () => ({
+    summary: $('owBugSummary').value.trim(), resolver: $('owBugResolver').value.trim(),
+    requireId: $('owBugReq').value.trim(), priority: $('owBugPriority').value,
+    type: $('owBugType').value, findWay: $('owBugFindWay').value,
+    manHour: $('owBugHours').value.trim(), level: $('owBugLevel').value.trim(),
+    desc: $('owBugDesc').value.trim()
+  })
+});
+
+onesWrite({
+  cmd: 'schedule', pre: 'owSchedPre', commit: 'owSchedCommit', status: 'owSchedStatus', title: '调整排期',
+  payload: () => ({
+    id: $('owSchedId').value.trim(), online: $('owSchedOnline').value.trim(),
+    developStart: $('owSchedDevStart').value.trim(), developEnd: $('owSchedDevEnd').value.trim(),
+    testStart: $('owSchedTestStart').value.trim(), testEnd: $('owSchedTestEnd').value.trim(),
+    submitTest: $('owSchedSubmitTest').value.trim()
+  })
+});
+
+onesWrite({
+  cmd: 'move', pre: 'owMovePre', commit: 'owMoveCommit', status: 'owMoveStatus', title: '移入迭代',
+  payload: () => ({ ids: $('owMoveIds').value.trim(), sprint: $('owMoveSprint').value.trim() })
+});
+
+onesWrite({
+  cmd: 'advance', pre: 'owAdvPre', commit: 'owAdvCommit', status: 'owAdvStatus', title: '状态流转',
+  payload: () => ({
+    id: $('owAdvId').value.trim(), event: $('owAdvEvent').value.trim(),
+    kind: $('owAdvKind').value
+  })
+});
+
 // ============================================================== credentials ====
 // 凭据台账：只渲染元信息（有无 / 更新时间 / cookie 名），cookie 值永不出后端
 let credItems = [];
@@ -3195,6 +3794,117 @@ const server = http.createServer(async (req, res) => {
       if (b.confirm === true) args.push('--confirm');
       const r = await runScript(SCRIPTS.apolloModify, args, 180_000);
       return scriptResult(res, r, b.confirm === true ? '已提交并发布' : '预检完成');
+    }
+
+    // ------------------------------------------------------- ONES 研发协作 ----
+    // ONES 是协作系统（无测试环境），不受「生产只读」约束；但写入仍走两阶段：
+    // confirm=false 只跑 Dry-Run 出 Diff，confirm=true 才带 --confirm 落库。
+    if (req.method === 'POST' && route === '/api/ones/query') {
+      const b = await readBody(req);
+      const cmd = (b.cmd || '').trim();
+      const args = [];
+      if (cmd === 'schedule') {
+        args.push('schedule');
+        if (b.from) args.push('--from', String(b.from));
+        if (b.to) args.push('--to', String(b.to));
+      } else if (cmd === 'req') {
+        const key = (b.key || '').trim();
+        if (!key) return json(res, 400, { error: '缺少需求 ID 或标题关键词' });
+        args.push('req', key);
+        if (b.limit) args.push('--limit', String(b.limit));
+      } else if (cmd === 'reqs') {
+        args.push('reqs');
+        const sprint = (b.sprint || '').trim();
+        const pm = (b.pm || '').trim();
+        const title = (b.title || '').trim();
+        const level = (b.level || '').trim();
+        if (!sprint && !pm && !title && !level) return json(res, 400, { error: '至少填一个过滤条件' });
+        if (sprint) args.push('--sprint', sprint);
+        if (pm) args.push('--pm', pm);
+        if (title) args.push('--title', title);
+        if (level) args.push('--level', level);
+        if (b.limit) args.push('--limit', String(b.limit));
+      } else if (cmd === 'bugs') {
+        args.push('bugs');
+        if (b.id) args.push('--id', String(b.id));
+        if (b.resolver) args.push('--resolver', String(b.resolver));
+        if (b.summary) args.push('--summary', String(b.summary));
+        if (b.requireId) args.push('--require-id', String(b.requireId));
+        args.push('--limit', String(b.limit || 10));
+      } else if (cmd === 'iterations') {
+        args.push('iterations');
+        if (b.keyword) args.push(String(b.keyword));
+      } else if (cmd === 'projects') {
+        args.push('projects');
+        if (b.keyword) args.push(String(b.keyword));
+      } else {
+        return json(res, 400, { error: '不支持的 ONES 查询命令' });
+      }
+      args.push('--json');
+      return scriptResult(res, await runScript(SCRIPTS.onesQuery, args));
+    }
+
+    if (req.method === 'POST' && route === '/api/ones/write') {
+      const b = await readBody(req);
+      const cmd = (b.cmd || '').trim();
+      const confirm = b.confirm === true;
+      const args = [];
+      const push = (flag, val) => { if (val !== undefined && val !== null && String(val).trim() !== '') args.push(flag, String(val).trim()); };
+
+      if (cmd === 'create-req') {
+        if (!String(b.title || '').trim()) return json(res, 400, { error: '缺少需求标题' });
+        if (!String(b.level || '').trim()) return json(res, 400, { error: '缺少层级' });
+        if (!String(b.pm || '').trim()) return json(res, 400, { error: '缺少产品经理' });
+        args.push('create-req');
+        push('--title', b.title);
+        push('--level', b.level);
+        push('--project', b.project);
+        push('--pm', b.pm);
+        push('--sprint', b.sprint);
+        push('--priority', b.priority);
+        push('--type', b.type);
+        push('--desc', b.desc);
+        if (b.withSafetyFunc !== false) args.push('--with-safety-func');
+      } else if (cmd === 'create-bug') {
+        if (!String(b.summary || '').trim()) return json(res, 400, { error: '缺少缺陷标题' });
+        if (!String(b.resolver || '').trim()) return json(res, 400, { error: '缺少处理人' });
+        args.push('create-bug');
+        push('--summary', b.summary);
+        push('--resolver', b.resolver);
+        push('--require-id', b.requireId);
+        push('--priority', b.priority);
+        push('--type', b.type);
+        push('--find-way', b.findWay);
+        push('--desc', b.desc);
+        push('--man-hour', b.manHour);
+        push('--level', b.level);
+      } else if (cmd === 'schedule') {
+        if (!String(b.id || '').trim()) return json(res, 400, { error: '缺少需求 ID' });
+        args.push('schedule', String(b.id).trim());
+        push('--develop-start', b.developStart);
+        push('--develop-end', b.developEnd);
+        push('--test-start', b.testStart);
+        push('--test-end', b.testEnd);
+        push('--submit-test', b.submitTest);
+        push('--online', b.online);
+      } else if (cmd === 'move') {
+        if (!String(b.ids || '').trim()) return json(res, 400, { error: '缺少需求 ID' });
+        if (!String(b.sprint || '').trim()) return json(res, 400, { error: '缺少目标迭代' });
+        args.push('move', String(b.ids).trim());
+        push('--sprint', b.sprint);
+      } else if (cmd === 'advance') {
+        if (!String(b.id || '').trim()) return json(res, 400, { error: '缺少 ID' });
+        if (!String(b.event || '').trim()) return json(res, 400, { error: '缺少流转事件' });
+        args.push('advance', String(b.id).trim());
+        push('--event', b.event);
+        if (b.kind === 'bug') args.push('--kind', 'bug');
+      } else {
+        return json(res, 400, { error: '不支持的 ONES 写命令' });
+      }
+
+      if (confirm) args.push('--confirm');
+      const r = await runScript(SCRIPTS.onesModify, args, 180_000);
+      return scriptResult(res, r, confirm ? '已提交' : '预检完成');
     }
 
     if (req.method === 'POST' && route === '/api/write/es') {

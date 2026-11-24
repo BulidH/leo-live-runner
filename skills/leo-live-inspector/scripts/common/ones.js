@@ -548,16 +548,54 @@ export async function getEstimateDetail(requireId, { cookie } = {}) {
   };
 }
 
-export async function listBugs({ id, requireId, requireIds, summary, resolver, sprintId, limit = 20, page = 1, cookie } = {}) {
+export async function listBugs({ id, requireId, requireIds, summary, resolver, sprintId, limit = 20, page = 1, cookie, scan = 600 } = {}) {
   const body = { page, limit };
   if (id) body.id = Number(id);
   if (requireId) body.require_ids = [Number(requireId)];
   if (requireIds?.length) body.require_ids = requireIds.map(Number);
-  if (summary) body.summary = summary;
+  // get_bugs 服务端只认 id / resolver / require_ids / sprint_id 等精确字段；
+  // summary / kw / title / search 等模糊字段全部被静默忽略，并返回全库 3.5 万条。
+  // 所以标题过滤只能本地做：从最新往旧翻页扫描 scan 条，再按关键词筛。
   if (resolver) body.resolver = resolver;
   if (sprintId !== undefined && sprintId !== null && sprintId !== '') body.sprint_id = Number(sprintId);
-  const data = await executeOnesApi({ path: '/api/bug/get_bugs', method: 'POST', postBody: body, cookie });
-  return { total: data?.totalcount ?? 0, items: (data?.datalist || []).map(normalizeBug) };
+
+  const wantSummary = String(summary || '').trim();
+  const want = Math.max(Number(limit) || 20, 1);
+  const scanCount = Math.max(Number(scan) || 600, want);
+
+  if (!wantSummary) {
+    const data = await executeOnesApi({ path: '/api/bug/get_bugs', method: 'POST', postBody: body, cookie });
+    return { total: data?.totalcount ?? 0, items: (data?.datalist || []).map(normalizeBug) };
+  }
+
+  // 分页扫描：服务端每页固定返回 10 条，不受 limit 控制，只能靠翻页累积
+  const kw = wantSummary.toLowerCase();
+  const matched = [];
+  const maxPages = Math.ceil(scanCount / 10) + 5;
+  let scanned = 0;
+
+  for (let p = 1; p <= maxPages; p++) {
+    const data = await executeOnesApi({
+      path: '/api/bug/get_bugs',
+      method: 'POST',
+      postBody: { ...body, page: p, limit: 10 },
+      cookie
+    });
+    const rows = data?.datalist || [];
+    if (!rows.length) break;
+    scanned += rows.length;
+    for (const r of rows) {
+      if (String(r.summary || '').toLowerCase().includes(kw)) matched.push(r);
+    }
+    if (matched.length >= want) break;
+  }
+
+  return {
+    total: matched.length,
+    scanned,
+    // 全库命中数不可得，这里给的是「扫描范围内命中数」
+    items: matched.slice(0, want).map(normalizeBug)
+  };
 }
 
 export async function listIterations({ level = null, keyword = '', limit = 200, cookie } = {}) {
