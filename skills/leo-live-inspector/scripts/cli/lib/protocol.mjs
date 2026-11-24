@@ -61,6 +61,8 @@ export const COMMAND_TYPES = {
   HEALTH: "health",
   DOCTOR: "doctor",
   TABS_LIST: "tabs.list",
+  TABS_OPEN: "tabs.open",
+  TABS_CLOSE_OWN: "tabs.close-own",
   TABS_NEW: "tabs.new",
   TABS_GOTO: "tabs.goto",
   TABS_CLOSE: "tabs.close",

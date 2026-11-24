@@ -1,4 +1,5 @@
 import { exportCookies, visitForCookies } from "./cookie-export.mjs";
+import { openInUserWindow, closeOwnedTab } from "./user-tab.mjs";
 import { createMultiUrlPollLoop } from "./poll-loop.mjs";
 import { createCommandQueue } from "./command-queue.mjs";
 import { shouldStopNetworkCapture } from "./background-lifecycle.mjs";
@@ -871,6 +872,11 @@ async function executeTask(task) {
         })
       );
       result = await withTaskSummary({ claimed: true, tabId, groupId, windowId: moved.windowId });
+    } else if (type === "tabs.open") {
+      // 在用户自己的窗口里开一个普通标签页（不建任务组、不开独立窗口）
+      result = await openInUserWindow(chrome, params, taskState);
+    } else if (type === "tabs.close-own") {
+      result = await closeOwnedTab(chrome, params);
     } else if (type === "tabs.new") {
       const force = params.force === true || params.force === "true" || params.force === "1";
       const focus = Boolean(params.focus);

@@ -917,72 +917,37 @@ function listCredentials() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ------------------------------------------------------------ 可见打开站点 ----
-// 扩展桥接自带的 cookies.visit 会开一个隐藏窗口、读完 cookie 就立刻关掉，
-// 用户根本看不到页面（所以「登录页」按钮看起来像没反应）。
-// 这里走「专用窗口 + 任务标签分组」：页面在一个独立的 Chrome 窗口里以任务组形式打开，
-// 不往用户正在用的窗口里塞标签页，用户的浏览现场完全不受影响。
+// 登录页直接开在用户自己的浏览器窗口里，就是一个普通标签页 ——
+// 不建任务标签分组、不开独立窗口，和用户自己点 + 号开页没区别。
+// （任务分组只用于 Agent 自己测试跑自动化，不该拿它挡在用户面前干活。）
 
-const LOGIN_TASK_TITLE = 'Leo 凭据登录页';
-const LOGIN_TASK_IDLE_MS = 10 * 60 * 1000; // 闲置 10 分钟后回收，避免长期占住扩展唯一的活动任务位
-let loginTaskIdleTimer = null;
-
-function scheduleLoginTaskRelease() {
-  if (loginTaskIdleTimer) clearTimeout(loginTaskIdleTimer);
-  loginTaskIdleTimer = setTimeout(async () => {
-    loginTaskIdleTimer = null;
-    try {
-      const d = await executeCommand('doctor');
-      if (!d || !d.task || d.task.title !== LOGIN_TASK_TITLE) return;
-      // 收尾要彻底：先关掉任务标签（独立窗口会随最后一个标签一起消失），再结束任务，
-      // 否则会留一个孤儿窗口，还会长期占住扩展唯一的「活动任务」位。
-      const tabId = d.task.claimedTabId;
-      if (tabId) await executeCommand('close-tab', { tabId }).catch(() => {});
-      await executeCommand('end-task', {}).catch(() => {});
-    } catch {}
-  }, LOGIN_TASK_IDLE_MS);
-  if (typeof loginTaskIdleTimer.unref === 'function') loginTaskIdleTimer.unref();
-}
-
-// 在专用窗口里用任务分组打开（或复用）登录页。返回 {ok, url, method, reused, message}
-async function openInTaskGroup(url) {
+// 打开站点：优先在用户当前窗口新建/复用同源标签页。
+// 返回 {ok, url, method, reused, message}
+async function openInUserBrowser(url) {
   const health = await ensureBridge({ startTimeoutMs: 15000 });
   if (!health || !health.extensionOnline) {
     throw new Error('Chrome 扩展「Leo cookie.txt Locally」未在线，请先在 chrome://extensions 启用');
   }
-  const doctor = await executeCommand('doctor').catch(() => null);
-  const task = doctor && doctor.task;
-  const usable = task && task.title === LOGIN_TASK_TITLE;
-
-  if (usable) {
-    try {
-      // 复用同一个任务标签：只导航，不新开标签，窗口与分组都不变
-      await executeCommand('goto', { url, focus: true });
-      scheduleLoginTaskRelease();
-      return { ok: true, url, method: 'task-group', reused: true };
-    } catch (err) {
-      // 用户手动关掉了那个窗口 → 扩展里的活动任务变成僵尸（窗口已不存在）。
-      // 这种情况回收僵尸任务后重开，而不是把错误抛给用户。
-      if (!/task window is unavailable|tab_not_found|No tab with id/i.test(err.message || '')) throw err;
-      await executeCommand('end-task', {}).catch(() => {});
+  // 老版本扩展没有 tabs.open，重新加载扩展后才能用普通标签页方式打开
+  try {
+    const res = await executeCommand('open-tab', { url, focus: true });
+    const out = res && res.result ? res.result : res || {};
+    return { ok: true, url, method: 'user-tab', reused: Boolean(out.reused) };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/Unsupported task type|invalid_request/i.test(msg)) {
+      throw new Error('Chrome 扩展版本过旧（缺少「普通标签页」能力），请在 chrome://extensions 重新加载 Leo cookie.txt Locally 后重试');
     }
-  } else if (task) {
-    // 扩展同一时刻只维护一个活动任务，不去抢占用户/其他脚本正在跑的任务
-    throw new Error(`浏览器里已有正在执行的任务「${task.title}」，为免打断不再新开；可稍后再试或手动打开站点`);
+    throw err;
   }
-
-  await executeCommand('start-task', { title: LOGIN_TASK_TITLE, focus: true, sameWindow: false });
-  // 同任务默认单标签：有 claimed 标签就导航复用，force 才新开
-  await executeCommand('new-tab', { url, focus: true });
-  scheduleLoginTaskRelease();
-  return { ok: true, url, method: 'task-group', reused: false };
 }
 
 async function openSiteVisible(url) {
   try {
-    const r = await openInTaskGroup(url);
-    return { ...r, message: `已在独立窗口「${LOGIN_TASK_TITLE}」打开 ${url}` };
+    const r = await openInUserBrowser(url);
+    return { ...r, message: `已在你的浏览器里打开标签页 ${url}` };
   } catch (err) {
-    return { ok: false, url, method: 'task-group', message: err.message };
+    return { ok: false, url, method: 'user-tab', message: err.message };
   }
 }
 
@@ -1060,7 +1025,7 @@ async function refreshCredential({ id, waitMs = 120000 }) {
   return {
     ok: false,
     code: (lastError && lastError.code) || 'LOGIN_TIMEOUT',
-    message: `已在独立窗口「${LOGIN_TASK_TITLE}」打开 ${target}，但 ${Math.round(budgetMs / 1000)} 秒内未确认到有效登录态（原有凭据未改动）。完成登录后再点一次「刷新」即可。`,
+    message: `已在你的浏览器标签页打开 ${target}，但 ${Math.round(budgetMs / 1000)} 秒内未确认到有效登录态（原有凭据未改动）。完成登录后再点一次「刷新」即可。`,
     def: describeCredential(def)
   };
 }
@@ -1416,7 +1381,7 @@ function buildPage(projects, appItems) {
       </div>
       <div class="homecard">
         <h3>🔑 凭据台账</h3>
-        <p>一页看全 skill 依赖的全部 Cookie / Token：是否有、上次更新时间、包含哪些 Cookie 名。点「刷新」会在需要登录时于独立窗口弹出对应站点登录页，你登录完凭据自动回读落盘。</p>
+        <p>一页看全 skill 依赖的全部 Cookie / Token：是否有、上次更新时间、包含哪些 Cookie 名。点「刷新」会在需要登录时在你当前浏览器窗口打开对应站点标签页，你登录完凭据自动回读落盘。</p>
         <div class="kw">对应脚本：credential_relay.js（本地桥接 127.0.0.1:19526）</div>
         <button class="ghost" data-goto="credentials">管理凭据 →</button>
       </div>
@@ -1795,9 +1760,9 @@ function buildPage(projects, appItems) {
       </div>
       <div class="hint">
         刷新流程：点「刷新」→ 先用浏览器里的现有 Cookie 探活，通过即一步落盘（不打扰你）→
-        不通过才会在<b>独立窗口</b>（任务标签分组，不占用你正在用的窗口）弹出登录页，你在那里登录 →
+        不通过才会在<b>你自己的浏览器窗口</b>里打开该站点的一个普通标签页（不建标签组、不另开窗口），你在那里登录 →
         页面每 3 秒重读一次 Cookie，读到有效登录态就自动写入本机凭据文件并刷新下面的状态，不用再点第二次。
-        「登录页」按钮只负责把站点打开到那个独立窗口里，不写任何文件。
+        「登录页」按钮只负责打开这个标签页，不写任何文件。
       </div>
     </div>
     <div class="card">
@@ -2884,7 +2849,7 @@ $('credBody').addEventListener('click', async e => {
     try {
       const r = await post('/api/credential/open', { id });
       if (r.ok) {
-        setCredStatus('已在浏览器独立窗口打开 ' + (r.url || it.url || id) + '，请完成登录后点「刷新」', 'success');
+        setCredStatus('已在浏览器标签页打开 ' + (r.url || it.url || id) + '，请完成登录后点「刷新」', 'success');
         toast('已打开登录页', 'ok');
       } else {
         setCredStatus('打开失败: ' + (r.message || ''), 'error');

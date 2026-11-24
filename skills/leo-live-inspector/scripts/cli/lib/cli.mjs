@@ -366,6 +366,36 @@ export async function executeCommand(command, params = {}, positional = [], opti
       );
     }
 
+    case "open-tab": {
+      // 在用户自己的窗口里开普通标签页（不建任务组、不开独立窗口），用于需要用户本人看/登录的页面
+      const url = params.url || positional[0];
+      if (!url) throw new Error("Missing URL for 'open-tab'");
+      return await requestBridge(
+        "/cmd",
+        "POST",
+        {
+          type: COMMAND_TYPES.TABS_OPEN,
+          params: definedParams({
+            url,
+            focus: params.focus !== undefined ? asBool(params.focus) : true,
+          }),
+        },
+        options
+      );
+    }
+
+    case "close-own-tab": {
+      // 只关本扩展在用户窗口里打开过的标签页；用户自己的标签一律不动
+      const tabId = Number(params.tabId || positional[0]);
+      if (!tabId) throw new Error("Missing tabId for 'close-own-tab'");
+      return await requestBridge(
+        "/cmd",
+        "POST",
+        { type: COMMAND_TYPES.TABS_CLOSE_OWN, params: { tabId } },
+        options
+      );
+    }
+
     case "new-tab": {
       const url = params.url || positional[0] || "about:blank";
       return await requestBridge(
