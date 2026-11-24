@@ -2877,6 +2877,10 @@ $('wDbCommit').addEventListener('click', async () => {
 // 协作系统，不受「生产只读」约束；查询直接返回，写入仍两阶段（预检 → 确认）。
 
 let onesEntered = false;
+// 排期上次成功查询的时间窗。用于判断「结果区还是空的就补一次查询」，
+// 以及切换子页时不重复刷新已查过的结果。
+let onesSchedLoaded = null;   // { from, to } —— 已成功渲染过的时间窗
+let onesSchedInFlight = false;
 
 function onesDate(d) {
   const p = n => String(n).padStart(2, '0');
@@ -2893,12 +2897,30 @@ function onesWeekRange(offsetWeeks) {
 
 let onesWeekOffset = 0;
 
+/**
+ * 进入 ONES 页 / 排期子页时调用。
+ *
+ * 规则（对应用户诉求）：
+ *   1. 结果区还是空的（从未成功查过）→ 自动查一次，用户不用先点按钮；
+ *   2. 已经查过 → 切 tab 回来不重新请求，原结果原样保留（一次查询要 3~5 秒）；
+ *   3. 上次查询失败 → 视为没查过，下次进入会重试。
+ *
+ * 用户手动改日期不会触发自动查询，仍以「点了查询按钮」为准，避免改完日期
+ * 只是切个 tab 就被自动刷新一次。
+ */
 function onesOnEnter() {
   if (!onesEntered) {
     onesEntered = true;
     $('onesTabs').querySelector('button[data-o="schedule"]').click();
   }
   if (!$('oSchedFrom').value) onesApplyWeek(0);
+  onesSchedAutoQuery();
+}
+
+function onesSchedAutoQuery() {
+  if (onesSchedLoaded || onesSchedInFlight) return;   // 查过 / 正在查 → 不重复触发
+  if (!$('oSchedFrom').value || !$('oSchedTo').value) return;
+  $('oSchedQuery').click();
 }
 
 function onesApplyWeek(offset) {
@@ -2953,6 +2975,8 @@ $('onesTabs').addEventListener('click', e => {
   document.querySelectorAll('#page-ones .osec').forEach(s => {
     s.style.display = s.id === 'o-' + b.dataset.o ? '' : 'none';
   });
+  // 切回「我的排期」时，只有结果还没查过才补一次；查过就原样保留
+  if (b.dataset.o === 'schedule') onesSchedAutoQuery();
 });
 
 // ---- 我的排期 ----
@@ -2965,6 +2989,7 @@ $('oSchedQuery').addEventListener('click', async () => {
   const from = $('oSchedFrom').value, to = $('oSchedTo').value;
   if (!from || !to) { onesStatus('oSchedStatus', '请选择起止日期', 'error'); return; }
   const seq = ++onesSchedSeq;
+  onesSchedInFlight = true;
   $('oSchedQuery').disabled = true;
   onesStatus('oSchedStatus', '查询中… ' + from + ' ~ ' + to, 'running');
   try {
@@ -2973,6 +2998,7 @@ $('oSchedQuery').addEventListener('click', async () => {
     if (!r.ok) throw new Error(r.error || '查询失败');
     const d = (r.json && r.json.data) || {};
     const items = d.items || [];
+    onesSchedLoaded = { from, to };     // 记录该时间窗已查过，切子页回来不再重复请求
     $('oResultTitle').textContent = '我的排期 · ' + from + ' ~ ' + to;
     if (!items.length) { onesOut('<div class="combo-empty">该时间窗内没有排期（' + from + ' ~ ' + to + '）</div>'); onesStatus('oSchedStatus', '无数据', 'success'); onesRaw(null); return; }
 
@@ -3018,10 +3044,14 @@ $('oSchedQuery').addEventListener('click', async () => {
     onesStatus('oSchedStatus', '完成', 'success');
   } catch (e) {
     if (seq !== onesSchedSeq) return;
+    onesSchedLoaded = null;             // 失败不算查过，下次进入会重试
     onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
     onesStatus('oSchedStatus', '失败', 'error');
   } finally {
-    if (seq === onesSchedSeq) $('oSchedQuery').disabled = false;
+    if (seq === onesSchedSeq) {
+      onesSchedInFlight = false;
+      $('oSchedQuery').disabled = false;
+    }
   }
 });
 
