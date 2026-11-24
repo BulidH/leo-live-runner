@@ -36,7 +36,8 @@ import {
   saveFastCookie,
   saveUcCookie,
   saveArmsCookie,
-  saveArmsApiKey
+  saveArmsApiKey,
+  saveOnesCookie
 } from './common/credentials.js';
 import { saveDinsightCredentials } from './common/dinsight.js';
 import { getBrowserCookies, cookiesToHeader } from './credential_relay.js';
@@ -856,6 +857,14 @@ const CREDENTIALS = [
     file: 'arms_api_key.json', env: 'ARMS_API_KEY', url: '', kind: 'apikey',
     save: value => saveArmsApiKey(value),
     note: 'API Key 无法从浏览器读取，只能手动粘贴'
+  },
+  {
+    id: 'ones', label: 'ONES 研发管理平台', group: '研发协作',
+    file: 'ones_cookie.json', env: 'ONES_COOKIE', url: 'https://ones.ke.com/',
+    names: ['ones_ke_token', 'session_id', 'csrfSecret', 'login_ucid', 'ucid', 'lianjia_ssid', 'lianjia_uuid'],
+    save: header => saveOnesCookie(header),
+    probe: { url: 'https://ones.ke.com/api/minepage/get_counts?quick_check=allaboutme', init: { method: 'GET' } },
+    note: '失效表现：ones_query.js 报登录态失效 / 返回前端页面；需求、缺陷、排期查询全部不可用'
   }
 ];
 
