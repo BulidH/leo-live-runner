@@ -2952,19 +2952,25 @@ $('onesTabs').addEventListener('click', e => {
 });
 
 // ---- 我的排期 ----
+// 单次查询要 3~5 秒（要过 ONES 接口）。连点或改完日期马上再点时，晚到的旧响应会覆盖
+// 新结果，看起来就像「改了日期没变化」。用递增序号丢弃过期响应。
+let onesSchedSeq = 0;
 $('oSchedPrev').addEventListener('click', () => { onesApplyWeek(onesWeekOffset - 1); $('oSchedQuery').click(); });
 $('oSchedNext').addEventListener('click', () => { onesApplyWeek(onesWeekOffset + 1); $('oSchedQuery').click(); });
 $('oSchedQuery').addEventListener('click', async () => {
   const from = $('oSchedFrom').value, to = $('oSchedTo').value;
   if (!from || !to) { onesStatus('oSchedStatus', '请选择起止日期', 'error'); return; }
-  onesStatus('oSchedStatus', '查询中…', 'running');
+  const seq = ++onesSchedSeq;
+  $('oSchedQuery').disabled = true;
+  onesStatus('oSchedStatus', '查询中… ' + from + ' ~ ' + to, 'running');
   try {
     const r = await post('/api/ones/query', { cmd: 'schedule', from, to });
+    if (seq !== onesSchedSeq) return;   // 已有更新的一次查询，丢弃本次结果
     if (!r.ok) throw new Error(r.error || '查询失败');
     const d = (r.json && r.json.data) || {};
     const items = d.items || [];
     $('oResultTitle').textContent = '我的排期 · ' + from + ' ~ ' + to;
-    if (!items.length) { onesOut('<div class="combo-empty">该时间窗内没有排期</div>'); onesStatus('oSchedStatus', '无数据', 'success'); onesRaw(null); return; }
+    if (!items.length) { onesOut('<div class="combo-empty">该时间窗内没有排期（' + from + ' ~ ' + to + '）</div>'); onesStatus('oSchedStatus', '无数据', 'success'); onesRaw(null); return; }
 
     // 按需求聚合
     const agg = {};
@@ -3007,8 +3013,11 @@ $('oSchedQuery').addEventListener('click', async () => {
     onesRaw(r.json);
     onesStatus('oSchedStatus', '完成', 'success');
   } catch (e) {
+    if (seq !== onesSchedSeq) return;
     onesOut('<div class="combo-empty">' + escHtml(e.message) + '</div>');
     onesStatus('oSchedStatus', '失败', 'error');
+  } finally {
+    if (seq === onesSchedSeq) $('oSchedQuery').disabled = false;
   }
 });
 
