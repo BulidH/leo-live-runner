@@ -9,6 +9,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '..', 'scripts', 'deploy_web.js');
 
 /**
+ * 取页面 HTML。
+ * deploy_web.js 是 ESM 且顶层会启动 HTTP 服务，不能直接 import；
+ * 这里用 vm 只求值 buildPage 所需的模板片段并展开占位符。
+ */
+function renderPage() {
+  const src = fs.readFileSync(SRC, 'utf8');
+  // 必须从 <!DOCTYPE html> 开始，否则会漏掉 head 里的主题脚本
+  const start = src.indexOf('<!DOCTYPE html>');
+  const end = src.indexOf('</html>', start);
+  assert.ok(start > 0 && end > start, '未找到页面模板');
+  let html = src.slice(start, end);
+  html = html
+    .replace(/\$\{JSON\.stringify\(projectItems\)[^}]*\}/g, '[]')
+    .replace(/\$\{JSON\.stringify\(appItems\)[^}]*\}/g, '[]');
+  // 模板里还有少量 ${...}（如 certRows），一律替换成空串
+  html = html.replace(/\$\{[^}]*\}/g, '');
+  return html;
+}
+
+/**
  * 把 deploy_web.js 模板里的内联页面脚本抽出来，替换掉 buildPage 注入的占位符，
  * 然后在最小 DOM 桩上真正跑一遍。
  *
@@ -16,11 +36,12 @@ const SRC = path.join(__dirname, '..', 'scripts', 'deploy_web.js');
  * 「进入时到底有没有发请求」「切回去会不会重复查」这类问题。
  */
 function loadPage() {
-  const src = fs.readFileSync(SRC, 'utf8');
-  let script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
-  script = script
-    .replace(/\$\{JSON\.stringify\(projectItems\)[^}]*\}/g, '[]')
-    .replace(/\$\{JSON\.stringify\(appItems\)[^}]*\}/g, '[]');
+  // 从 buildPage 真正渲染出来的 HTML 里取脚本，不能直接对源文件做正则：
+  // 源文件里还有服务端自检用的 `<script>` 字符串，会一起被匹配进来。
+  const html = renderPage();
+  const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  assert.ok(blocks.length >= 2, '页面应同时包含主题脚本与主体脚本');
+  const script = blocks.join('\n;\n');
 
   const byId = new Map();
   const handlers = new Map();
@@ -65,7 +86,15 @@ function loadPage() {
     return (sandbox.ONES_SCHED_PRESETS_KEYS || []).map(k => get('preset-' + k));
   }
 
+  const htmlEl = {
+    _attrs: {},
+    getAttribute(k) { return this._attrs[k] ?? null; },
+    setAttribute(k, v) { this._attrs[k] = String(v); },
+    removeAttribute(k) { delete this._attrs[k]; }
+  };
+
   const document = {
+    documentElement: htmlEl,
     getElementById: get,
     querySelector,
     querySelectorAll(sel) {
@@ -87,6 +116,7 @@ function loadPage() {
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
     fetch: async () => ({ ok: true, json: async () => ({}) }),
     navigator: {}, requestAnimationFrame: () => 0,
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
     JSON, Math, Date, Number, String, Array, Object, Set, Map, Error,
     encodeURIComponent, decodeURIComponent
   };
@@ -99,7 +129,7 @@ function loadPage() {
     sandbox, { filename: 'deploy_web.inline.js' });
   sandbox.ONES_SCHED_PRESETS = sandbox.__ONES_SCHED_PRESETS;
 
-  return { sandbox, get, byId, handlers };
+  return { sandbox, get, byId, handlers, htmlEl };
 }
 
 /** 模拟点击顶层 Tab：showTab 通过 #tabs 容器的 click 事件接收 */
@@ -262,4 +292,89 @@ test('上一周以当前显示日期为基准平移（先点本月也不会错�
   const want = `${expected.getFullYear()}-${pad(expected.getMonth() + 1)}-${pad(expected.getDate())}`;
   assert.equal(from, want, '应在上月 1 号基础上往前推 7 天');
   assert.equal(calls.at(-1).body.from, want);
+});
+
+// ---- 主题切换 ----
+
+test('默认落在暗色主题上', () => {
+  const page = loadPage();
+  assert.equal(page.htmlEl.getAttribute('data-theme'), 'dark');
+});
+
+test('点主题按钮在亮/暗之间切换，并写入 localStorage', () => {
+  const page = loadPage();
+  const btn = page.get('themeToggle');
+  assert.ok(page.handlers.get(btn)?.click?.[0], '主题按钮应绑定点击处理器');
+
+  const store = {};
+  page.sandbox.localStorage.setItem = (k, v) => { store[k] = v; };
+
+  page.handlers.get(btn).click[0]({ target: btn });
+  assert.equal(page.htmlEl.getAttribute('data-theme'), 'light');
+  assert.equal(store['leo.theme'], 'light');
+
+  page.handlers.get(btn).click[0]({ target: btn });
+  assert.equal(page.htmlEl.getAttribute('data-theme'), 'dark');
+  assert.equal(store['leo.theme'], 'dark');
+});
+
+test('已保存亮色偏好时首帧就是亮色（不闪暗色）', () => {
+  // 只跑 head 里的那段同步脚本，模拟「上次选了亮色」的冷启动
+  const html = renderPage();
+  const headScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1];
+  const htmlEl = {
+    _attrs: {},
+    getAttribute(k) { return this._attrs[k] ?? null; },
+    setAttribute(k, v) { this._attrs[k] = String(v); }
+  };
+  const sandbox = {
+    document: { documentElement: htmlEl },
+    window: { matchMedia: () => ({ matches: false }) },
+    location: { search: '' },
+    localStorage: { getItem: k => (k === 'leo.theme' ? 'light' : null), setItem() {} },
+    console
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(headScript, sandbox, { filename: 'theme-head.js' });
+  assert.equal(htmlEl.getAttribute('data-theme'), 'light', '应沿用已保存的亮色偏好');
+});
+
+test('跟随系统偏好：系统亮色且无保存值时用亮色', () => {
+  const html = renderPage();
+  const headScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)][0][1];
+  const htmlEl = {
+    _attrs: {},
+    getAttribute(k) { return this._attrs[k] ?? null; },
+    setAttribute(k, v) { this._attrs[k] = String(v); }
+  };
+  const sandbox = {
+    document: { documentElement: htmlEl },
+    window: { matchMedia: () => ({ matches: true }) },
+    location: { search: '' },
+    localStorage: { getItem: () => null, setItem() {} },
+    console
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(headScript, sandbox, { filename: 'theme-head.js' });
+  assert.equal(htmlEl.getAttribute('data-theme'), 'light');
+});
+
+test('主题按钮文案随主题变化', () => {
+  const page = loadPage();
+  const btn = page.get('themeToggle');
+  const label = page.get('themeLabel');
+  assert.equal(label.textContent, '暗色');
+  page.handlers.get(btn).click[0]({ target: btn });
+  assert.equal(label.textContent, '亮色');
+});
+
+test('CSS 同时定义了暗色与亮色两套令牌', () => {
+  const html = renderPage();
+  assert.match(html, /:root\s*\{[^}]*--grad-a:#0f172a/s, '暗色令牌');
+  assert.match(html, /html\[data-theme="light"\]\s*\{[^}]*--grad-a:#eef2ff/s, '亮色令牌');
+  // 玻璃拟态关键属性
+  assert.match(html, /backdrop-filter:blur\(18px\)/, '卡片应有背景模糊');
+  assert.match(html, /fadeInUp\s*\.5s/, '入场动画应为 0.5s');
 });

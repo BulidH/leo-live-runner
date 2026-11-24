@@ -14,6 +14,35 @@
 
 ---
 
+## 🎨 一、外观与主题（玻璃拟态）
+
+界面采用玻璃拟态（Glassmorphism）：深色渐变背景 + 模糊彩色光斑 + 半透明毛玻璃卡片。
+
+| 元素 | 实现 |
+| :--- | :--- |
+| 背景 | `linear-gradient(158deg, #0f172a, #1e293b)` + 三处径向渐变光晕 |
+| 光斑 | 三个 `filter: blur(84px)` 的彩色圆，22s 缓慢浮动（`prefers-reduced-motion` 时静止） |
+| 卡片 | `rgba(255,255,255,.085)` + `backdrop-filter: blur(18px) saturate(160%)` + `border: 1px solid rgba(255,255,255,.2)` |
+| 光影 | 外层 `box-shadow` 投影 + 内层 `inset 0 1px 0 rgba(255,255,255,.16)` 高光，hover 时换成强调色辉光 |
+| 字体 | 标题 26px/800 字重；关键数据用 `background-clip:text` 渐变填充 |
+| 动画 | 页面切换时 `fadeInUp 0.5s cubic-bezier(.22,1,.36,1)` |
+
+### 亮色 / 暗色主题
+
+两套主题**共用一套 CSS 变量**，只有 `:root`（暗色）与 `html[data-theme="light"]`（亮色）里的令牌值不同，所以加新组件时用变量即可自动适配两套主题。
+
+| 行为 | 说明 |
+| :--- | :--- |
+| 默认 | 跟随系统 `prefers-color-scheme` |
+| 手动切换 | 右上角按钮，图标 🌙暗色 / ☀️亮色 |
+| 持久化 | 存 `localStorage['leo.theme']`，下次打开沿用 |
+| 防闪烁 | `<head>` 里有一段同步内联脚本，在首帧前把 `data-theme` 写到 `<html>` 上 |
+| 强制指定 | URL 加 `?theme=light` / `?theme=dark`，可截图或分享固定主题的链接 |
+
+**注意**：页面现在有两个内联 `<script>`（head 主题脚本 + 主体脚本）。启动自检会逐个校验，正则用非贪婪的 `/<script>([\s\S]*?)<\/script>/g` 收集全部——早期用贪婪匹配会把两段之间夹着的 `</script><script>` 一起吞进去，拼出非法代码，自检会误报失败。
+
+---
+
 ## 🧭 一、启动与参数
 
 | 参数/选项 | 默认值 | 说明 |
