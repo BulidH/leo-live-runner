@@ -27,9 +27,13 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 ### 🟡 线下测试环境 (TEST) 安全原则：两阶段风控确认闭环
 1. **严格两阶段执行机制 (Zero Silent Mutation)**：
    - ⚠️ **严禁 AI 直接带 `--confirm` 一步到位修改配置或权限！**
-   - **阶段 1 (Pre-flight / Dry-Run)**：执行不带 `--confirm` 命令，向用户展示【变更前 vs 变更后】Diff 确认单与受影响面评估，**强制停下等待用户明确文字确认**；
-   - **阶段 2 (Commit & Verify)**：用户回复明确肯定指令（如“确认”、“发布吧”）后，AI 后台追加 `--confirm` 提交写入，并自动回查验证热生效结果。
+   - **阶段 1 (Pre-flight / Dry-Run)**：执行不带 `--confirm` 命令，向用户展示【变更前 vs 变更后】Diff 确认单与受影响面评估，**强制停下推送交互确认卡片**；
+   - **阶段 2 (Commit & Verify)**：接收到用户卡片点击或明确回复确认后，AI 后台追加 `--confirm` 提交写入，并自动回查验证热生效结果。
 2. **高危操作拦截机制**：删除角色、删除权限点、从权限点剔除接口、解绑人员等在任何环境均自动触发 `🚨🚨🚨【高危操作预审报告】`，必须经用户明确确认后方可执行。
+3. **变更/部署交互确认准则 (Adaptive Confirmation Guard)**：
+   - **优先原生卡片交互**：若当前宿主环境提供了用于向用户提问、选择或确认的原生交互工具，必须优先调用该工具，向聊天框推送带可点击选项的卡片（推荐动作标注 `(Recommended)`）；
+   - **环境自适应降级**：若宿主无此类交互工具（或在纯终端环境），必须在回复末尾输出带 `1️⃣ / 2️⃣ / 3️⃣` 序号的 Markdown 预审卡片，引导用户直接回复数字单键流转；
+   - **安全防线**：严禁伪造未注册的私有链接协议；用户未通过卡片点击或明确回复确认前，严禁追加 `--confirm` 执行任何写操作或正式部署。
 
 ---
 
@@ -81,8 +85,8 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“查下 recorder 最新的 5 条图片数据 (线上)”** | `node scripts/cloud_mysql_query.js recorder "SELECT id, source, ctime FROM image_understanding_detail ORDER BY id DESC LIMIT 5"` | 线上服务云从库只读查询，输出耗时与数据表格 | [database-guide.md](references/database-guide.md) |
 | **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 | [database-guide.md](references/database-guide.md) |
 | **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
-| **“把当前分支构建部署到测试环境”** | `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
-| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、测试环境写操作（预检 → 确认两步）、凭据台账（一键跳转登录并自动刷新 Cookie） | [deploy-web-guide.md](references/deploy-web-guide.md) |
+| **“把当前分支构建部署到测试环境”** | **阶段 1 (Pre-flight 预审)**：识别分支与目标泳道，推送部署确认卡片；<br>**阶段 2 (确认后)**：执行 `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
+| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
 | **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 | [dinsight-query-guide.md](references/dinsight-query-guide.md) |
 | **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
@@ -157,7 +161,7 @@ flowchart TD
 ## 📝 本地排查流程库与页面手册沉淀
 
 - **排查前检索**：对问题诊断先提取关键词，后台执行 `node scripts/knowledge.js search '<关键词>'`（页面任务传 `--kind page`）；匹配后用 `show <id>` 读取并复用已验证路径；
-- **主动询问沉淀**：任务完成后，若形成可复用且已验证的新方法或判断分支，在结论文末简短询问是否保存；
+- **主动询问沉淀**：任务完成后，若形成可复用且已验证的新方法或判断分支，根据确认准则（优先卡片，降级单键）询问是否保存；
 - **脱敏持久化**：用户明确同意后，参数化并脱敏保存至 `~/.shrimp/skills/live-inspector/knowledge/`，每份流程独立 Markdown，永久本地持久化。详见 [本地流程库手册](references/local-knowledge-guide.md) 与 [页面操作流程手册](references/page-flow-guide.md)。
 
 ---
