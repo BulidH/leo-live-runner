@@ -87,6 +87,26 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
 | **“把当前分支构建部署到测试环境”** | **阶段 1 (Pre-flight 预审)**：识别分支与目标泳道，推送部署确认卡片；<br>**阶段 2 (确认后)**：执行 `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
 | **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/deploy_web.js --open` | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、ONES 研发 Tab（排期/需求/缺陷查询 + 两阶段写入）、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
+
+### 🖥️ 控制台启动口令（高频，必须按此执行）
+
+用户说下面**任意一种**，都视为「要打开本地控制台」，**直接后台执行 `node scripts/console.js`**，不要反问、不要让他自己敲命令：
+
+> 启动服务 · 打开控制台 · 打开部署平台 · 打开本地服务 · 打开控制台页面 · 起一下控制台 · 把控制台开起来 · 打开部署控制台 · 打开 6886
+
+| 用户可能说 | 执行 |
+| :--- | :--- |
+| 启动服务 / 打开控制台 / 打开部署平台 / 打开本地服务 | `node scripts/console.js` |
+| 换端口打开 | `node scripts/console.js --port 6901` |
+| 只启动不弹浏览器 | `node scripts/console.js --no-open` |
+| 关掉控制台 | `node scripts/console.js --stop` |
+| 直接要具体 Tab | `node scripts/console.js --open` 后把 `http://127.0.0.1:6886/#credentials` 这类锚点发给用户 |
+
+**为什么用 `console.js` 而不是直接跑 `deploy_web.js`**：前者是幂等的。端口已有实例就复用并打开页面；没有才在后台拉起（脱离当前进程组，不会被 run 结束带走），然后等就绪再开浏览器。直接跑 `deploy_web.js` 在端口被占用时会报 `EADDRINUSE` 退出。
+
+**交付时必须告诉用户的三件事**：URL、PID、停止命令。日志路径 `~/.shrimp/skills/live-inspector/console.log`。
+
+**边界**：这是**按需启动**，不注册开机自启、不装守护进程；系统重启后自然消失。用户问「会不会自动启动」时，答案是不会——必须有人（人或 AI）执行命令。
 | **“把 smart-customer-service 部署到线上/生产环境”** | **执行发布参谋模式 (坚决拦截生产直写)** | **严禁自动化生产部署！** 交付《部署参谋单》与服务云直达链接 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
 | **“用 Dinsight 查近 7 天北京成交量”** | `node scripts/dinsight_query.js "近7天北京成交量"` | 自然语言查数结论，含工具调用与 SSE 摘要 | [dinsight-query-guide.md](references/dinsight-query-guide.md) |
 | **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
@@ -203,7 +223,7 @@ flowchart TD
 - **📡 Kafka 消息无损探查与安全模拟投递手册**：[references/kafka-guide.md](references/kafka-guide.md)
 - **🗄️ 数据库查询参考手册 (服务云 MySQL / 线下直连)**：[references/database-guide.md](references/database-guide.md)
 - **🚀 CI 构建与测试环境工作负载自动化部署手册**：[references/ci-deploy-guide.md](references/ci-deploy-guide.md)
-- **🖥️ 测试环境控制台（部署 + 日志检索 + Apollo + 写操作 + 凭据管理）手册**：[references/deploy-web-guide.md](references/deploy-web-guide.md)
+- **🖥️ 测试环境控制台（部署 + 日志检索 + Apollo + ONES + 写操作 + 凭据管理）手册**：[references/deploy-web-guide.md](references/deploy-web-guide.md)
 - **🧠 Dinsight 自然语言大数据探查协议手册**：[references/dinsight-query-guide.md](references/dinsight-query-guide.md)
 - **🌐 通用 Chrome 浏览器操作与页面数据抓取手册**：[references/browser-guide.md](references/browser-guide.md)
 - **📋 页面操作流程沉淀与整段复用手册**：[references/page-flow-guide.md](references/page-flow-guide.md)

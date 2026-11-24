@@ -22,9 +22,32 @@
 | `--open` | - | 启动后用系统默认浏览器自动打开控制台 |
 
 ```bash
+node scripts/console.js                   # 推荐：幂等启动并打开页面（默认 6886）
 node scripts/deploy_web.js --open          # 启动并打开页面
 node scripts/deploy_web.js --port 6899     # 换端口，避免与已在跑的实例冲突
 ```
+
+### 启动器 `console.js`（推荐）
+
+`deploy_web.js` 在端口被占用时会直接 `EADDRINUSE` 退出。`console.js` 包了一层，解决这个日常摩擦：
+
+| 场景 | 行为 |
+| :--- | :--- |
+| 端口已有控制台在跑 | **复用**，只打开页面，不再起第二个 |
+| 端口空闲 | 后台拉起 `deploy_web.js`（`detached`，脱离进程组），等 `/api/initial` 就绪后打开浏览器 |
+| 端口被别的程序占用 | 明确报错并提示换端口（会校验 `/api/initial` 确认是不是本控制台） |
+| `--stop` | 按记录的 PID 停掉本脚本启动的实例 |
+
+```bash
+node scripts/console.js --port 6901        # 指定端口
+node scripts/console.js --no-open          # 只启动，不弹浏览器
+node scripts/console.js --stop             # 停止
+node scripts/console.js --json             # 结构化输出（含 url/pid/log/stop）
+```
+
+产物：PID 记在 `~/.shrimp/skills/live-inspector/console.pid`，日志写到同目录 `console.log`。
+
+**仍然不会自动启动**：没有 postinstall、没有 launchd/systemd 守护，系统重启后消失。要「打开就有」，必须有人或 AI 显式执行上面的命令。
 
 启动时会对内联页面脚本做一次语法自检，日志里出现 `✅ 页面脚本自检通过` 才说明页面可用。
 
