@@ -40,7 +40,7 @@ import {
 } from './common/credentials.js';
 import { saveDinsightCredentials } from './common/dinsight.js';
 import { getBrowserCookies, cookiesToHeader } from './credential_relay.js';
-import { visitForCookies } from './cli/lib/cli.mjs';
+import { ensureBridge, executeCommand } from './cli/lib/cli.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -844,6 +844,8 @@ const CREDENTIALS = [
   {
     id: 'dinsight', label: 'Dinsight 查数', group: '数据查询',
     file: 'dinsight_cookie.json', env: 'DINSIGHT_COOKIE', url: 'https://api-dinsight.ke.com',
+    // url 是 API 域，浏览器打开只会是空白页；登录入口在前端门户
+    loginUrl: 'https://dinsight.ke.com/',
     names: ['prd-assistant-token-prod', 'csrf_token', 'access_token', 'login_ucid', 'security_ticket'],
     save: header => saveDinsightCredentials(header),
     probe: { url: 'https://api-dinsight.ke.com/api/v1/auth/me', init: { method: 'GET' } },
@@ -914,8 +916,78 @@ function listCredentials() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// 刷新：先让 Chrome 打开站点（未登录即登录页），已登录直接回读；未登录则在 waitMs 内反复重读，
-// 用户登录完成后无需再点一次，凭据会自动落盘。
+// ------------------------------------------------------------ 可见打开站点 ----
+// 扩展桥接自带的 cookies.visit 会开一个隐藏窗口、读完 cookie 就立刻关掉，
+// 用户根本看不到页面（所以「登录页」按钮看起来像没反应）。
+// 这里走「专用窗口 + 任务标签分组」：页面在一个独立的 Chrome 窗口里以任务组形式打开，
+// 不往用户正在用的窗口里塞标签页，用户的浏览现场完全不受影响。
+
+const LOGIN_TASK_TITLE = 'Leo 凭据登录页';
+const LOGIN_TASK_IDLE_MS = 10 * 60 * 1000; // 闲置 10 分钟后回收，避免长期占住扩展唯一的活动任务位
+let loginTaskIdleTimer = null;
+
+function scheduleLoginTaskRelease() {
+  if (loginTaskIdleTimer) clearTimeout(loginTaskIdleTimer);
+  loginTaskIdleTimer = setTimeout(async () => {
+    loginTaskIdleTimer = null;
+    try {
+      const d = await executeCommand('doctor');
+      if (!d || !d.task || d.task.title !== LOGIN_TASK_TITLE) return;
+      // 收尾要彻底：先关掉任务标签（独立窗口会随最后一个标签一起消失），再结束任务，
+      // 否则会留一个孤儿窗口，还会长期占住扩展唯一的「活动任务」位。
+      const tabId = d.task.claimedTabId;
+      if (tabId) await executeCommand('close-tab', { tabId }).catch(() => {});
+      await executeCommand('end-task', {}).catch(() => {});
+    } catch {}
+  }, LOGIN_TASK_IDLE_MS);
+  if (typeof loginTaskIdleTimer.unref === 'function') loginTaskIdleTimer.unref();
+}
+
+// 在专用窗口里用任务分组打开（或复用）登录页。返回 {ok, url, method, reused, message}
+async function openInTaskGroup(url) {
+  const health = await ensureBridge({ startTimeoutMs: 15000 });
+  if (!health || !health.extensionOnline) {
+    throw new Error('Chrome 扩展「Leo cookie.txt Locally」未在线，请先在 chrome://extensions 启用');
+  }
+  const doctor = await executeCommand('doctor').catch(() => null);
+  const task = doctor && doctor.task;
+  const usable = task && task.title === LOGIN_TASK_TITLE;
+
+  if (usable) {
+    try {
+      // 复用同一个任务标签：只导航，不新开标签，窗口与分组都不变
+      await executeCommand('goto', { url, focus: true });
+      scheduleLoginTaskRelease();
+      return { ok: true, url, method: 'task-group', reused: true };
+    } catch (err) {
+      // 用户手动关掉了那个窗口 → 扩展里的活动任务变成僵尸（窗口已不存在）。
+      // 这种情况回收僵尸任务后重开，而不是把错误抛给用户。
+      if (!/task window is unavailable|tab_not_found|No tab with id/i.test(err.message || '')) throw err;
+      await executeCommand('end-task', {}).catch(() => {});
+    }
+  } else if (task) {
+    // 扩展同一时刻只维护一个活动任务，不去抢占用户/其他脚本正在跑的任务
+    throw new Error(`浏览器里已有正在执行的任务「${task.title}」，为免打断不再新开；可稍后再试或手动打开站点`);
+  }
+
+  await executeCommand('start-task', { title: LOGIN_TASK_TITLE, focus: true, sameWindow: false });
+  // 同任务默认单标签：有 claimed 标签就导航复用，force 才新开
+  await executeCommand('new-tab', { url, focus: true });
+  scheduleLoginTaskRelease();
+  return { ok: true, url, method: 'task-group', reused: false };
+}
+
+async function openSiteVisible(url) {
+  try {
+    const r = await openInTaskGroup(url);
+    return { ...r, message: `已在独立窗口「${LOGIN_TASK_TITLE}」打开 ${url}` };
+  } catch (err) {
+    return { ok: false, url, method: 'task-group', message: err.message };
+  }
+}
+
+// 刷新：静默读一次浏览器 Cookie → 探活通过直接落盘；不通过就把站点真正打开到用户面前，
+// 然后在 waitMs 内反复重读，用户登录完成后自动落盘，不用再点第二次。
 async function refreshCredential({ id, waitMs = 120000 }) {
   const def = credentialById(id);
   if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
@@ -926,66 +998,82 @@ async function refreshCredential({ id, waitMs = 120000 }) {
   const deadline = Date.now() + budgetMs;
   let cookies = null;
   let lastError = null;
-  let opened = false;
+  let opened = null;
   let readAttempted = false;
 
-  try {
-    cookies = await getBrowserCookies({ url: def.url, names: def.names, timeoutMs: 25000, visit: true });
-    opened = true;
-  } catch (err) {
-    lastError = err;
-    opened = err.code === 'LOGIN_REQUIRED' || err.code === 'COOKIE_NOT_FOUND';
-    if (!opened) throw err;
-  }
-
-  // 浏览器里可能只剩埋点 cookie：拿读到的 cookie 先探活，通过后才落盘，
-  // 避免把原本有效的凭据覆盖成无效值；未通过就继续等用户在 Chrome 里登录。
-  for (;;) {
-    if (cookies && cookies.length) {
-      const header = cookiesToHeader(cookies);
-      let ok = true;
-      if (def.probe) {
-        try { ok = Boolean((await probeCredentialById({ id: def.id, cookieOverride: header })).ok); } catch { ok = true; }
-      }
-      if (ok) {
-        if (!def.save(header)) throw Object.assign(new Error('读取成功但写入本地凭据文件失败'), { status: 500 });
-        return {
-          ok: true,
-          verified: def.probe ? true : null,
-          message: `已同步 ${cookies.length} 个 Cookie 并落盘${def.probe ? '，探活正常' : ''}`,
-          def: describeCredential(def)
-        };
-      }
-    }
-    if (Date.now() >= deadline || (readAttempted && lastError && !['LOGIN_REQUIRED', 'COOKIE_NOT_FOUND'].includes(lastError.code))) break;
-    readAttempted = true;
-    await sleep(3000);
+  const silentRead = async timeoutMs => {
     try {
-      cookies = await getBrowserCookies({ url: def.url, names: def.names, timeoutMs: 10000 });
+      cookies = await getBrowserCookies({ url: def.url, names: def.names, timeoutMs });
     } catch (err) {
       lastError = err;
       cookies = null;
-      if (err.code !== 'LOGIN_REQUIRED' && err.code !== 'COOKIE_NOT_FOUND') break;
     }
+  };
+
+  // 浏览器里可能只剩埋点 cookie：拿读到的 cookie 先探活，通过后才落盘，
+  // 避免把原本有效的凭据覆盖成无效值。
+  const commitIfVerified = async () => {
+    if (!cookies || !cookies.length) return null;
+    const header = cookiesToHeader(cookies);
+    let ok = true;
+    if (def.probe) {
+      try { ok = Boolean((await probeCredentialById({ id: def.id, cookieOverride: header })).ok); } catch { ok = true; }
+    }
+    if (!ok) return null;
+    if (!def.save(header)) throw Object.assign(new Error('读取成功但写入本地凭据文件失败'), { status: 500 });
+    return {
+      ok: true,
+      verified: def.probe ? true : null,
+      message: `已同步 ${cookies.length} 个 Cookie 并落盘${def.probe ? '，探活正常' : ''}`,
+      def: describeCredential(def)
+    };
+  };
+
+  // ① 静默读：已是登录态时完全不打扰用户
+  await silentRead(25000);
+  const firstDone = await commitIfVerified();
+  if (firstDone) return { ...firstDone, opened: false };
+
+  // ② 没登录 → 把站点真正打开（可见标签页），让用户能完成登录
+  const target = `${new URL(def.loginUrl || def.url).origin}/`;
+  opened = await openSiteVisible(target);
+  if (!opened.ok) {
+    return {
+      ok: false,
+      code: 'OPEN_FAILED',
+      message: `${opened.message}。可先手动在 Chrome 打开 ${target} 登录后再点「刷新」。`,
+      def: describeCredential(def)
+    };
   }
 
-  const tip = opened
-    ? `已在 Chrome 打开 ${def.url}，但 ${Math.round(budgetMs / 1000)} 秒内未确认到有效登录态（原有凭据未改动）。完成登录后再点一次「刷新」即可。`
-    : (lastError && lastError.message) || '未读取到 Cookie';
-  return { ok: false, code: (lastError && lastError.code) || 'LOGIN_TIMEOUT', message: tip, def: describeCredential(def) };
+  // ③ 轮询重读直到拿到有效登录态或超时
+  for (;;) {
+    if (Date.now() >= deadline) break;
+    if (readAttempted && lastError && !['LOGIN_REQUIRED', 'COOKIE_NOT_FOUND'].includes(lastError.code)) break;
+    readAttempted = true;
+    await sleep(3000);
+    await silentRead(10000);
+    const done = await commitIfVerified();
+    if (done) return { ...done, opened: true };
+  }
+
+  return {
+    ok: false,
+    code: (lastError && lastError.code) || 'LOGIN_TIMEOUT',
+    message: `已在独立窗口「${LOGIN_TASK_TITLE}」打开 ${target}，但 ${Math.round(budgetMs / 1000)} 秒内未确认到有效登录态（原有凭据未改动）。完成登录后再点一次「刷新」即可。`,
+    def: describeCredential(def)
+  };
 }
 
-// 仅打开站点（用于「打开登录页」按钮），不写入任何凭据
+// 仅打开站点（用于「打开登录页」按钮），不写入任何凭据。
+// 用真实可见的 Chrome 标签页，而不是扩展那个开完就关的隐藏窗口。
 async function openCredentialSite({ id }) {
   const def = credentialById(id);
   if (!def) throw Object.assign(new Error('未知凭据 id'), { status: 400 });
-  if (!def.url) throw Object.assign(new Error('该凭据没有可访问的站点地址'), { status: 400 });
-  try {
-    const visit = await visitForCookies(`${new URL(def.url).origin}/`, { visitTimeoutMs: 20000 });
-    return { ok: true, url: visit.finalUrl || def.url, loginRequired: Boolean(visit.loginRequired) };
-  } catch (err) {
-    return { ok: false, url: def.url, message: err.message };
-  }
+  if (!def.url && !def.loginUrl) throw Object.assign(new Error('该凭据没有可访问的站点地址'), { status: 400 });
+  const target = `${new URL(def.loginUrl || def.url).origin}/`;
+  const opened = await openSiteVisible(target);
+  return { ...opened, target, finalUrl: opened.url };
 }
 
 function saveCredentialManually({ id, value }) {
@@ -1321,7 +1409,7 @@ function buildPage(projects, appItems) {
       </div>
       <div class="homecard">
         <h3>🔑 凭据台账</h3>
-        <p>一页看全 skill 依赖的全部 Cookie / Token：是否有、上次更新时间、包含哪些 Cookie 名。点「刷新」会让 Chrome 直接跳转对应站点（没登录就是登录页），你登录完凭据自动回读落盘。</p>
+        <p>一页看全 skill 依赖的全部 Cookie / Token：是否有、上次更新时间、包含哪些 Cookie 名。点「刷新」会在需要登录时于独立窗口弹出对应站点登录页，你登录完凭据自动回读落盘。</p>
         <div class="kw">对应脚本：credential_relay.js（本地桥接 127.0.0.1:19526）</div>
         <button class="ghost" data-goto="credentials">管理凭据 →</button>
       </div>
@@ -1699,9 +1787,10 @@ function buildPage(projects, appItems) {
         <span class="status" id="credStatus"></span>
       </div>
       <div class="hint">
-        刷新流程：点「刷新」→ 本地桥接让 Chrome 打开/切换到目标站点 → 若未登录会停在登录页 → 你正常登录 →
-        页面每 3 秒重读一次浏览器的 Cookie，读到即自动写入本机凭据文件并刷新下面的状态，不用再点第二次。
-        若浏览器里已是登录态，则一步直达、不会跳登录页。需要 Chrome 已安装并启用扩展「Leo cookie.txt Locally」。
+        刷新流程：点「刷新」→ 先用浏览器里的现有 Cookie 探活，通过即一步落盘（不打扰你）→
+        不通过才会在<b>独立窗口</b>（任务标签分组，不占用你正在用的窗口）弹出登录页，你在那里登录 →
+        页面每 3 秒重读一次 Cookie，读到有效登录态就自动写入本机凭据文件并刷新下面的状态，不用再点第二次。
+        「登录页」按钮只负责把站点打开到那个独立窗口里，不写任何文件。
       </div>
     </div>
     <div class="card">
@@ -2666,7 +2755,7 @@ function renderCredentials() {
         (it.probeSupported ? '<button class="sm" data-cred-probe="' + it.id + '"' + (busy ? ' disabled' : '') + '>探活</button>' : '') +
         (it.kind === 'apikey' ? '' :
           '<button class="sm" data-cred-refresh="' + it.id + '"' + (busy ? ' disabled' : '') + '>' + (busy ? '等待中…' : '刷新') + '</button>' +
-          '<button class="sm ghost" data-cred-open="' + it.id + '" title="只打开站点，不写入凭据">登录页</button>') +
+          '<button class="sm ghost" data-cred-open="' + it.id + '" title="在 Chrome 打开站点登录页，不写入凭据">登录页</button>') +
         '<button class="sm ghost" data-cred-save="' + it.id + '" title="手动粘贴 Cookie / cookies.txt / JSON">粘贴</button>' +
         '<button class="sm ghost" data-cred-clear="' + it.id + '"' + (it.exists ? '' : ' disabled') + '>清除</button>' +
         '</div></td></tr>';
@@ -2709,7 +2798,7 @@ async function refreshOne(id) {
   credBusy[id] = true;
   delete credProbe[id];
   renderCredentials();
-  setCredStatus('正在读取 ' + (it ? it.label : id) + ' 的登录态…浏览器会自动切到该站点', 'running');
+  setCredStatus('正在读取 ' + (it ? it.label : id) + ' 的登录态…', 'running');
   try {
     const r = await post('/api/credential/refresh', { id, waitMs: Number($('credWait').value) || 120000 });
     patchCred(r.def);
@@ -2762,10 +2851,17 @@ $('credBody').addEventListener('click', async e => {
   const open = e.target.closest('[data-cred-open]');
   if (open) {
     const id = open.dataset.credOpen;
-    setCredStatus('正在让 Chrome 打开站点…', 'running');
+    const it = credItems.find(x => x.id === id) || {};
+    setCredStatus('正在打开 ' + (it.label || id) + ' …', 'running');
     try {
       const r = await post('/api/credential/open', { id });
-      setCredStatus(r.ok ? '已打开 ' + r.url + (r.loginRequired ? '（需要登录）' : '（已是登录态）') : '打开失败: ' + (r.message || ''), r.ok ? 'success' : 'error');
+      if (r.ok) {
+        setCredStatus('已在浏览器独立窗口打开 ' + (r.url || it.url || id) + '，请完成登录后点「刷新」', 'success');
+        toast('已打开登录页', 'ok');
+      } else {
+        setCredStatus('打开失败: ' + (r.message || ''), 'error');
+        toast(r.message || '打开失败', 'err');
+      }
     } catch (err) { setCredStatus('打开失败: ' + err.message, 'error'); }
     return;
   }

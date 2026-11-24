@@ -150,7 +150,7 @@ flowchart TD
 - **内生中继机制**：默认复用本地 `~/.shrimp/skills/live-inspector/` 下的缓存凭据；仅在凭据缺失或明确鉴权失败时，通过 `127.0.0.1:19527` 本地桥接从已加载的 Chrome 扩展（**Leo cookie.txt Locally**，版本 ≥ 1.3.15）静默同步；
 - **平台支持范围**：服务云 (`cloud_token.json`)、Shipwright (`shipwright_cookie.json`)、FeCI (`feci_cookie.json`)、Apollo Portal (`test_apollo_cookie.json`)、Luke 权限 (`luke_cookie.json`)、UC 组织 (`test_uc_cookie.json`)、灯塔 ARMS (`arms_api_key.json` / `arms_cookie.json`)、ES 搜索云 (`search_cookie.json`)、白鸽网关 (`baige_cookie.json`)、Dinsight、FAST (`fast_cookie.json`)；
 - **独立中继工具**：可使用 `node scripts/credential_relay.js <targetUrl>` 单点测试与同步凭据（严禁调用任何外部自动化浏览器）；
-- **可视化集中管理**：`node scripts/deploy_web.js --open` 打开的「凭据」Tab 可一屏看到全部凭据的保存状态 / 更新时间 / Cookie 名，并对任意条目点「刷新」→ Chrome 自动打开该站点，登录完成后自动回读落盘（页面只显示元信息，不显示凭据值）。
+- **可视化集中管理**：`node scripts/deploy_web.js --open` 打开的「凭据」Tab 可一屏看到全部凭据的保存状态 / 更新时间 / Cookie 名，并对任意条目点「刷新」→ 已登录则静默落盘，未登录才在**独立 Chrome 窗口的任务标签分组**里弹出登录页（不占用用户自己的窗口），登录完成后自动回读落盘（页面只显示元信息，不显示凭据值）。
 
 ---
 
