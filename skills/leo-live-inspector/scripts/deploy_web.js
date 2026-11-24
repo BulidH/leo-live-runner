@@ -1640,9 +1640,15 @@ function buildPage(projects, appItems) {
         <button class="primary" id="oSchedQuery">查询排期</button>
         <button class="ghost" id="oSchedPrev">上一周</button>
         <button class="ghost" id="oSchedNext">下一周</button>
+        <span style="width:12px"></span>
+        <button class="ghost" id="oSchedThisWeek" data-preset="thisweek">本周</button>
+        <button class="ghost" id="oSchedThisMonth" data-preset="thismonth">本月</button>
+        <button class="ghost" id="oSchedLastMonth" data-preset="lastmonth">上一月</button>
+        <button class="ghost" id="oSchedTwoWeek" data-preset="twoweek">上周一 ~ 本周日</button>
+        <button class="ghost" id="oSchedWeekAhead" data-preset="weekahead">本周一 ~ 下周五</button>
         <span class="status" id="oSchedStatus">就绪</span>
       </div>
-      <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。</div>
+      <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。快捷区间会直接带上查询，也可以自己改日期后点「查询排期」。</div>
     </div>
 
     <div class="card osec" id="o-req" style="display:none">
@@ -2887,15 +2893,52 @@ function onesDate(d) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
-function onesWeekRange(offsetWeeks) {
-  const now = new Date();
-  const dow = (now.getDay() + 6) % 7;            // 周一为一周起点
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow + offsetWeeks * 7);
-  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-  return { from: onesDate(monday), to: onesDate(sunday) };
+/** 本周周一（本地时区，周一为一周起点） */
+function onesMondayOf(d = new Date()) {
+  const dow = (d.getDay() + 6) % 7;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - dow);
 }
 
-let onesWeekOffset = 0;
+function onesAddDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+/** 相对本周的周区间：offsetWeeks=0 本周，-1 上周，1 下周 */
+function onesWeekRange(offsetWeeks) {
+  const monday = onesAddDays(onesMondayOf(), offsetWeeks * 7);
+  return { from: onesDate(monday), to: onesDate(onesAddDays(monday, 6)) };
+}
+
+/** 自然月区间：offsetMonths=0 本月，-1 上月。末日用「下月 0 日」取，自动处理大小月与闰年 */
+function onesMonthRange(offsetMonths) {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+  return { from: onesDate(first), to: onesDate(last) };
+}
+
+/**
+ * 排期查询的常用时间窗。
+ *
+ * 除「本周 / 本月 / 上一月」这类自然区间外，还有两个跨周的工作窗口：
+ *   - twoweek ：上周一 ~ 本周日（覆盖两个完整周，用于回看刚过去的冲刺尾巴）
+ *   - weekahead：本周一 ~ 下周五（本周 + 下周工作日，用于提前看接续任务）
+ */
+const ONES_SCHED_PRESETS = {
+  thisweek: () => onesWeekRange(0),
+  thismonth: () => onesMonthRange(0),
+  lastmonth: () => onesMonthRange(-1),
+  twoweek: () => {
+    const monday = onesMondayOf();
+    return { from: onesDate(onesAddDays(monday, -7)), to: onesDate(onesAddDays(monday, 6)) };
+  },
+  weekahead: () => {
+    const monday = onesMondayOf();
+    return { from: onesDate(monday), to: onesDate(onesAddDays(monday, 11)) };  // 本周一 + 11 天 = 下周五
+  }
+};
+
+let onesWeekOffset = 0;   // 已弃用，仅为兼容旧引用保留；平移见 onesShiftWeek
 
 /**
  * 进入 ONES 页 / 排期子页时调用。
@@ -2924,10 +2967,52 @@ function onesSchedAutoQuery() {
 }
 
 function onesApplyWeek(offset) {
-  onesWeekOffset = offset;
   const r = onesWeekRange(offset);
   $('oSchedFrom').value = r.from;
   $('oSchedTo').value = r.to;
+  syncOnesPreset();
+}
+
+/**
+ * 上一周 / 下一周：相对**当前显示的起始日期**平移，而不是维护一个全局偏移量。
+ *
+ * 用全局偏移量会出错：先点「本月」（起始变成本月 1 号），再点「下一周」，
+ * 偏移量从 0 加到 1 只会跳到「本周 + 7 天」，跟用户看到的日期对不上。
+ * 以输入框里的实际日期为基准，符合直觉。
+ */
+function onesShiftWeek(direction) {
+  const from = $('oSchedFrom').value;
+  const base = from ? new Date(from + 'T00:00:00') : new Date();
+  const monday = onesAddDays(base, direction * 7);
+  $('oSchedFrom').value = onesDate(monday);
+  $('oSchedTo').value = onesDate(onesAddDays(monday, 6));
+  syncOnesPreset();
+}
+
+/** 应用一个预设时间窗；带 query=true 时立即发起查询 */
+function onesApplyPreset(key, { query = true } = {}) {
+  const fn = ONES_SCHED_PRESETS[key];
+  if (!fn) return;
+  const r = fn();
+  const a = $('oSchedFrom'), b = $('oSchedTo');
+  // 输入框有 max/min 约束时，直接赋超范围的值会被浏览器夹住；先清掉
+  a.removeAttribute?.('max'); b.removeAttribute?.('min');
+  a.value = r.from;
+  b.value = r.to;
+  syncOnesPreset();
+  if (query) $('oSchedQuery').click();
+}
+
+/** 高亮与当前日期窗完全匹配的预设按钮（用户手改日期后自然取消高亮） */
+function syncOnesPreset() {
+  const from = $('oSchedFrom').value, to = $('oSchedTo').value;
+  const matched = Object.keys(ONES_SCHED_PRESETS).find(k => {
+    const r = ONES_SCHED_PRESETS[k]();
+    return r.from === from && r.to === to;
+  });
+  document.querySelectorAll('[data-preset]').forEach(b => {
+    b.classList.toggle('on', b.dataset.preset === matched);
+  });
 }
 
 function onesOut(html) {
@@ -2983,8 +3068,19 @@ $('onesTabs').addEventListener('click', e => {
 // 单次查询要 3~5 秒（要过 ONES 接口）。连点或改完日期马上再点时，晚到的旧响应会覆盖
 // 新结果，看起来就像「改了日期没变化」。用递增序号丢弃过期响应。
 let onesSchedSeq = 0;
-$('oSchedPrev').addEventListener('click', () => { onesApplyWeek(onesWeekOffset - 1); $('oSchedQuery').click(); });
-$('oSchedNext').addEventListener('click', () => { onesApplyWeek(onesWeekOffset + 1); $('oSchedQuery').click(); });
+$('oSchedPrev').addEventListener('click', () => { onesShiftWeek(-1); $('oSchedQuery').click(); });
+$('oSchedNext').addEventListener('click', () => { onesShiftWeek(1); $('oSchedQuery').click(); });
+
+// 常用区间预设：点一下即带上查询
+Object.keys(ONES_SCHED_PRESETS).forEach(key => {
+  const btn = document.querySelector('[data-preset="' + key + '"]');
+  if (btn) btn.addEventListener('click', () => onesApplyPreset(key));
+});
+// 手改日期时同步预设高亮（改了就不该还亮着「本周」）
+['oSchedFrom', 'oSchedTo'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('change', syncOnesPreset);
+});
 $('oSchedQuery').addEventListener('click', async () => {
   const from = $('oSchedFrom').value, to = $('oSchedTo').value;
   if (!from || !to) { onesStatus('oSchedStatus', '请选择起止日期', 'error'); return; }
