@@ -142,6 +142,16 @@ async function clickTopTab(page, tab) {
   await new Promise(r => setTimeout(r, 0));   // 让查询的 promise 链跑完
 }
 
+/** 模拟点击 ONES 子页（工时概览 / 我的排期 / …） */
+async function clickOnesSubTab(page, o) {
+  const container = page.get('onesTabs');
+  const fakeBtn = { dataset: { o } };
+  for (const fn of page.handlers.get(container)?.click || []) {
+    await fn({ target: { closest: sel => (String(sel).includes('data-o') ? fakeBtn : null) } });
+  }
+  await new Promise(r => setTimeout(r, 0));
+}
+
 /**
  * 只记录排期查询（cmd === 'schedule'）。
  * 页面加载时还会顺带请求 /api/initial、/api/credentials 等，不能算进排期次数。
@@ -160,7 +170,9 @@ test('首次进入 ONES 页会自动查一次我的排期', async () => {
   const page = loadPage();
   const calls = stubFetch(page);
 
+  // 进入 ONES 默认落在「工时概览」，排期要显式切过去
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
 
   assert.equal(calls.length, 1, '进入时应自动发起 1 次排期查询');
   assert.equal(calls[0].url, '/api/ones/query');
@@ -173,10 +185,12 @@ test('查过之后再切回 ONES 页不会重复查询', async () => {
   const calls = stubFetch(page);
 
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
   assert.equal(calls.length, 1, '第一次进入应查一次');
 
   await clickTopTab(page, 'home');
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
   assert.equal(calls.length, 1, '结果已存在时切回不应再发请求');
 });
 
@@ -192,9 +206,11 @@ test('查询失败后再次进入会重试（失败不算查过）', async () =>
   };
 
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
   assert.equal(n, 1);
   await clickTopTab(page, 'home');
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
   assert.equal(n, 2, '上次失败应允许重试');
 });
 
@@ -202,6 +218,7 @@ test('自动查询用的是本周时间窗', async () => {
   const page = loadPage();
   const calls = stubFetch(page);
   await clickTopTab(page, 'ones');
+  await clickOnesSubTab(page, 'schedule');
 
   const { from, to } = calls[0].body;
   const d = new Date(from + 'T00:00:00');
@@ -403,4 +420,21 @@ test('滚动性能：不使用 backdrop-filter / fixed 背景 / hover 位移', (
   // 卡片 hover 不再位移（位移会被感知成「白色区域放大」）
   assert.doesNotMatch(decls, /\.homecard:hover\s*\{[^}]*transform/s);
   assert.doesNotMatch(decls, /\.jobitem:hover\s*\{[^}]*transform/s);
+});
+
+// ---- 默认子页 ----
+
+test('进入 ONES 页默认落在「工时概览」', async () => {
+  const page = loadPage();
+  const calls = stubFetch(page);
+  await clickTopTab(page, 'ones');
+
+  // 默认子页是工时概览 → 不自动查排期
+  assert.equal(calls.length, 0, '默认不应自动查排期');
+
+  // 页面结构上：工时是第一个且带 on，卡片默认可见；排期卡片默认隐藏
+  const raw = renderPage();
+  assert.match(raw, /<button class="on" data-o="manhour">工时概览<\/button>/, '工时概览应是第一个且默认选中');
+  assert.match(raw, /id="o-manhour">/, '工时卡片默认可见');
+  assert.match(raw, /id="o-schedule" style="display:none"/, '排期卡片默认隐藏');
 });

@@ -2019,8 +2019,8 @@ function buildPage(projects, appItems) {
     </div>
 
     <div class="subtabs" id="onesTabs">
-      <button class="on" data-o="schedule">我的排期</button>
-      <button data-o="manhour">工时概览</button>
+      <button class="on" data-o="manhour">工时概览</button>
+      <button data-o="schedule">我的排期</button>
       <button data-o="req">需求详情</button>
       <button data-o="reqs">需求检索</button>
       <button data-o="bugs">缺陷检索</button>
@@ -2028,33 +2028,7 @@ function buildPage(projects, appItems) {
       <button data-o="write">写入</button>
     </div>
 
-    <div class="card osec" id="o-schedule">
-      <div class="grid">
-        <div class="field">
-          <label>起始日期</label>
-          <input id="oSchedFrom" type="date" />
-        </div>
-        <div class="field">
-          <label>结束日期</label>
-          <input id="oSchedTo" type="date" />
-        </div>
-      </div>
-      <div class="actions">
-        <button class="primary" id="oSchedQuery">查询排期</button>
-        <button class="ghost" id="oSchedPrev">上一周</button>
-        <button class="ghost" id="oSchedNext">下一周</button>
-        <span style="width:12px"></span>
-        <button class="ghost" id="oSchedThisWeek" data-preset="thisweek">本周</button>
-        <button class="ghost" id="oSchedThisMonth" data-preset="thismonth">本月</button>
-        <button class="ghost" id="oSchedLastMonth" data-preset="lastmonth">上一月</button>
-        <button class="ghost" id="oSchedTwoWeek" data-preset="twoweek">上周一 ~ 本周日</button>
-        <button class="ghost" id="oSchedWeekAhead" data-preset="weekahead">本周一 ~ 下周五</button>
-        <span class="status" id="oSchedStatus">就绪</span>
-      </div>
-      <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。快捷区间会直接带上查询，也可以自己改日期后点「查询排期」。</div>
-    </div>
-
-    <div class="card osec" id="o-manhour" style="display:none">
+    <div class="card osec" id="o-manhour">
       <div class="grid">
         <div class="field">
           <label>起始日期</label>
@@ -2078,6 +2052,32 @@ function buildPage(projects, appItems) {
         未来日期不参与统计，只显示「待打」。
       </div>
       <div id="oMhResult"><div class="combo-empty">尚未查询</div></div>
+    </div>
+
+    <div class="card osec" id="o-schedule" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>起始日期</label>
+          <input id="oSchedFrom" type="date" />
+        </div>
+        <div class="field">
+          <label>结束日期</label>
+          <input id="oSchedTo" type="date" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oSchedQuery">查询排期</button>
+        <button class="ghost" id="oSchedPrev">上一周</button>
+        <button class="ghost" id="oSchedNext">下一周</button>
+        <span style="width:12px"></span>
+        <button class="ghost" id="oSchedThisWeek" data-preset="thisweek">本周</button>
+        <button class="ghost" id="oSchedThisMonth" data-preset="thismonth">本月</button>
+        <button class="ghost" id="oSchedLastMonth" data-preset="lastmonth">上一月</button>
+        <button class="ghost" id="oSchedTwoWeek" data-preset="twoweek">上周一 ~ 本周日</button>
+        <button class="ghost" id="oSchedWeekAhead" data-preset="weekahead">本周一 ~ 下周五</button>
+        <span class="status" id="oSchedStatus">就绪</span>
+      </div>
+      <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。快捷区间会直接带上查询，也可以自己改日期后点「查询排期」。</div>
     </div>
 
     <div class="card osec" id="o-req" style="display:none">
@@ -2230,7 +2230,7 @@ function buildPage(projects, appItems) {
       </div>
     </div>
 
-    <div class="card" id="oSharedResult">
+    <div class="card" id="oSharedResult" style="display:none">
       <h2 id="oResultTitle">结果</h2>
       <div id="oResult"><div class="combo-empty">尚未查询</div></div>
       <pre class="out" id="oRaw" style="display:none"></pre>
@@ -3416,10 +3416,12 @@ let onesWeekOffset = 0;   // 已弃用，仅为兼容旧引用保留；平移见
 function onesOnEnter() {
   if (!onesEntered) {
     onesEntered = true;
-    $('onesTabs').querySelector('button[data-o="schedule"]').click();
+    // 默认落在「工时概览」：每天要确认工时正好打满，这是打开控制台最常看的一屏
+    $('onesTabs').querySelector('button[data-o="manhour"]').click();
   }
+  // 排期那页的日期仍然预热好，切过去点「查询排期」就能直接查；
+  // 真正的自动查询由子页切换处理器负责（切到哪页查哪页）。
   if (!$('oSchedFrom').value) onesApplyWeek(0);
-  onesSchedAutoQuery();
 }
 
 function onesSchedAutoQuery() {
