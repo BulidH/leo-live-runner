@@ -21,11 +21,31 @@
 | 元素 | 实现 |
 | :--- | :--- |
 | 背景 | `linear-gradient(158deg, #0f172a, #1e293b)` + 三处径向渐变光晕 |
-| 光斑 | 三个 `filter: blur(84px)` 的彩色圆，22s 缓慢浮动（`prefers-reduced-motion` 时静止） |
-| 卡片 | `rgba(255,255,255,.085)` + `backdrop-filter: blur(18px) saturate(160%)` + `border: 1px solid rgba(255,255,255,.2)` |
+| 光斑 | 三个 `radial-gradient` 柔边彩色圆（**不用 `filter:blur()`**），静态不浮动 |
+| 卡片 | `rgba(255,255,255,.075)` + `border: 1px solid rgba(255,255,255,.2)` + 投影与内高光 |
 | 光影 | 外层 `box-shadow` 投影 + 内层 `inset 0 1px 0 rgba(255,255,255,.16)` 高光，hover 时换成强调色辉光 |
 | 字体 | 标题 26px/800 字重；关键数据用 `background-clip:text` 渐变填充 |
 | 动画 | 页面切换时 `fadeInUp 0.5s cubic-bezier(.22,1,.36,1)` |
+
+### ⚠️ 玻璃拟态的滚动性能红线
+
+玻璃感靠**半透明色值**实现，不靠 `backdrop-filter`。以下几类写法会让滚动逐帧重算，用户会看到白块闪烁、卡顿、白色区域「放大一下」——已经踩过一次，别再写回去：
+
+| 禁用 | 为什么会卡 |
+| :--- | :--- |
+| `backdrop-filter` / `-webkit-backdrop-filter` | 每帧对背后区域重新采样模糊；面积越大越致命，铺满整屏的卡片是最坏情况 |
+| `position:sticky` + `backdrop-filter` | 吸顶元素滚动时持续重采背后内容 |
+| `background-attachment: fixed` | 整页背景在每次滚动时重绘而不是随内容移动 |
+| `filter: blur(...)` 的光斑层 | 大半径模糊 + 动画，每次合成都要重算 |
+| 带 `backdrop-filter` 的元素上做 `transform` / 位移 hover | 位移触发重新栅格化，视觉上就是「卡片突然变大」 |
+
+替代做法：卡片用 `--glass-card`、胶囊导航用 `--glass-nav`、浮层（下拉/Toast）用 `--glass-pop` 三个不透明度更高的令牌，视觉上仍是磨砂玻璃，滚动时零成本。`tests/ones-autoquery.test.mjs` 里有一条 `滚动性能：不使用 backdrop-filter ...` 的回归用例守着这条线。
+
+**吸顶 Tab 栏必须是实色**：去掉 `backdrop-filter` 后，`rgba(...,.97)` 这类高但不等于 1 的透明度仍会让下方滚动的白字透上来，视觉上就是「白块 / 文字重影」。`--glass-nav` 直接给十六进制实色。另外 `top:14px` 留出的那条 14px 缝隙也会漏出滚动内容，用 `.tabs::before`（`background: var(--nav-gap)`）向上补满。
+
+**入场动画不要 `fill-mode: both`**：`.page.active { animation: fadeInUp .5s }` 的结束态与元素自然状态一致，加 `both` 只会让整页永久停留在一个合成层里，滚动时反复重绘超大 layer。
+
+`background` 的渐变也搬到了 `.bg-decor`（`position:fixed` + `contain:strict` + `translateZ(0)`），让它独立成一个合成层，滚动不再重绘 body。
 
 ### 亮色 / 暗色主题
 

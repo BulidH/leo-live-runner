@@ -374,7 +374,33 @@ test('CSS 同时定义了暗色与亮色两套令牌', () => {
   const html = renderPage();
   assert.match(html, /:root\s*\{[^}]*--grad-a:#0f172a/s, '暗色令牌');
   assert.match(html, /html\[data-theme="light"\]\s*\{[^}]*--grad-a:#eef2ff/s, '亮色令牌');
-  // 玻璃拟态关键属性
-  assert.match(html, /backdrop-filter:blur\(18px\)/, '卡片应有背景模糊');
+  // 玻璃感靠半透明令牌实现（两套主题各有值）
+  assert.match(html, /:root\s*\{[^}]*--glass-card:/s, '暗色玻璃卡片令牌');
+  assert.match(html, /html\[data-theme="light"\]\s*\{[^}]*--glass-card:/s, '亮色玻璃卡片令牌');
   assert.match(html, /fadeInUp\s*\.5s/, '入场动画应为 0.5s');
+});
+
+/**
+ * 滚动性能回归守卫：这些 CSS 属性在滚动时逐帧重算，会造成白块闪烁和卡顿。
+ * 曾经用 backdrop-filter 铺满整屏 + sticky 导航 + hover 位移，用户反馈
+ * 「滑动时下面出现白块、一卡一卡、白色区域会放大一下」。
+ */
+test('滚动性能：不使用 backdrop-filter / fixed 背景 / hover 位移', () => {
+  const html = renderPage();
+  // 注释里可以提到这些词，所以只看声明（冒号紧跟属性名后的形式）
+  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');   // 去掉注释再检查
+
+  assert.doesNotMatch(decls, /backdrop-filter\s*:/, '滚动时不应有 backdrop-filter 重算');
+  assert.doesNotMatch(decls, /-webkit-backdrop-filter\s*:/, '不应有 -webkit-backdrop-filter');
+  assert.doesNotMatch(decls, /background-attachment\s*:\s*fixed/, '固定背景会逐帧重绘 body');
+  assert.doesNotMatch(decls, /filter\s*:\s*blur\(/, 'filter:blur 在滚动时被反复重算');
+
+  // sticky 导航保留，但必须是不带模糊的实色胶囊
+  assert.match(decls, /\.tabs\s*\{[^}]*position:sticky/s);
+  assert.match(decls, /\.tabs\s*\{[^}]*background:var\(--glass-nav\)/s);
+
+  // 卡片 hover 不再位移（位移会被感知成「白色区域放大」）
+  assert.doesNotMatch(decls, /\.homecard:hover\s*\{[^}]*transform/s);
+  assert.doesNotMatch(decls, /\.jobitem:hover\s*\{[^}]*transform/s);
 });

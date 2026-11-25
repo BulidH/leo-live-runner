@@ -1280,6 +1280,11 @@ function buildPage(projects, appItems) {
     --glass: rgba(255,255,255,.085);
     --glass-2: rgba(255,255,255,.055);
     --glass-strong: rgba(255,255,255,.13);
+    /* 以下三个替代 backdrop-filter：靠不透明度本身做出玻璃感，滚动时不重算模糊 */
+    --glass-card: rgba(255,255,255,.075);
+    --glass-nav: #121a2b;
+    --nav-gap: #121a2b;            /* 吸顶栏必须实色：半透明会让下方内容透成重影 */
+    --glass-pop: rgba(24,33,52,.96);
     --glass-border: rgba(255,255,255,.20);
     --glass-border-soft: rgba(255,255,255,.10);
     --glass-inset: inset 0 1px 0 rgba(255,255,255,.16);
@@ -1303,6 +1308,10 @@ function buildPage(projects, appItems) {
     --glass: rgba(255,255,255,.62);
     --glass-2: rgba(255,255,255,.45);
     --glass-strong: rgba(255,255,255,.78);
+    --glass-card: rgba(255,255,255,.72);
+    --glass-nav: #ffffff;
+    --nav-gap: #ffffff;
+    --glass-pop: rgba(255,255,255,.98);
     --glass-border: rgba(255,255,255,.9);
     --glass-border-soft: rgba(15,23,42,.09);
     --glass-inset: inset 0 1px 0 rgba(255,255,255,.95);
@@ -1325,33 +1334,41 @@ function buildPage(projects, appItems) {
     margin:0;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
     color: var(--fg);
-    background:
-      radial-gradient(1100px 620px at 12% -8%, rgba(99,102,241,.26), transparent 62%),
-      radial-gradient(900px 560px at 92% 6%, rgba(6,182,212,.20), transparent 60%),
-      linear-gradient(158deg, var(--grad-a), var(--grad-b));
-    background-attachment: fixed;
+    background: linear-gradient(158deg, var(--grad-a), var(--grad-b));
     -webkit-font-smoothing: antialiased;
-    transition: background .4s ease, color .3s ease;
+    transition: color .3s ease;
   }
 
   /* 背景光斑：模糊彩色圆，缓慢浮动 */
-  .bg-decor { position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
-  .orb {
-    position:absolute; border-radius:50%;
-    filter: blur(84px);
-    opacity:.55;
-    animation: orbFloat 22s ease-in-out infinite;
+  /* 背景装饰层固定在视口，滚动时不再重绘 body。
+     contain:strict + translateZ(0) 把它隔离成独立合成层，
+     避免滚动时反复重算整页渐变。 */
+  .bg-decor {
+    position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(1100px 620px at 12% -8%, rgba(99,102,241,.26), transparent 62%),
+      radial-gradient(900px 560px at 92% 6%, rgba(6,182,212,.20), transparent 60%);
+    contain: strict;
+    transform: translateZ(0);
+    transition: opacity .4s ease;
   }
+  /* 光斑用径向渐变做柔边，替代 filter:blur() ——
+     filter 在滚动时会被反复重算，是白块/卡顿的主要来源之一。
+     渐变是静态绘制，滚动时零成本。 */
+  .orb { position:absolute; border-radius:50%; opacity:.55; }
   html[data-theme="light"] .orb { opacity:.42; }
-  .orb.o1 { width:540px; height:540px; background:var(--orb-1); top:-170px; left:-140px; }
-  .orb.o2 { width:460px; height:460px; background:var(--orb-2); top:8%; right:-150px; animation-delay:-7s; }
-  .orb.o3 { width:520px; height:520px; background:var(--orb-3); bottom:-220px; left:38%; animation-delay:-14s; }
-  @keyframes orbFloat {
-    0%,100% { transform: translate3d(0,0,0) scale(1); }
-    33%     { transform: translate3d(46px,-34px,0) scale(1.08); }
-    66%     { transform: translate3d(-38px,26px,0) scale(.95); }
+  .orb.o1 {
+    width:820px; height:820px; top:-300px; left:-260px;
+    background: radial-gradient(circle, var(--orb-1) 0%, transparent 68%);
   }
-
+  .orb.o2 {
+    width:720px; height:720px; top:2%; right:-280px;
+    background: radial-gradient(circle, var(--orb-2) 0%, transparent 66%);
+  }
+  .orb.o3 {
+    width:780px; height:780px; bottom:-340px; left:32%;
+    background: radial-gradient(circle, var(--orb-3) 0%, transparent 68%);
+  }
   .wrap { position:relative; z-index:1; max-width:1240px; margin:0 auto; padding:30px 24px 90px; }
 
   /* ---------------- 头部 ---------------- */
@@ -1378,7 +1395,7 @@ function buildPage(projects, appItems) {
   .badge {
     font-size:11.5px; font-weight:600; color:var(--warn-fg);
     border:1px solid rgba(245,158,11,.38); background:rgba(245,158,11,.13);
-    border-radius:999px; padding:4px 12px; backdrop-filter:blur(8px);
+    border-radius:999px; padding:4px 12px;
   }
   .dot {
     width:9px; height:9px; border-radius:50%; background:var(--ok);
@@ -1392,24 +1409,35 @@ function buildPage(projects, appItems) {
     padding:9px 16px; border-radius:999px;
     background:var(--glass-strong); border:1px solid var(--glass-border);
     color:var(--fg); font-size:13px; font-weight:600; cursor:pointer;
-    backdrop-filter:blur(18px) saturate(160%); -webkit-backdrop-filter:blur(18px) saturate(160%);
     box-shadow:var(--glass-inset);
     transition:transform .22s cubic-bezier(.22,1,.36,1), border-color .22s, background .3s;
   }
-  .theme-btn:hover { border-color:var(--glass-hover-border); transform:translateY(-1px); }
+  .theme-btn:hover { border-color:var(--glass-hover-border); }
   .theme-btn .ico { font-size:15px; line-height:1; }
 
   /* ---------------- 顶部 Tab ---------------- */
+  /* 注意：这里**故意不用 backdrop-filter**。
+     它和 position:sticky 一起用时，每滚一帧都要对背后内容重新模糊采样，
+     是「滚动卡顿 + 白块闪烁」的主要来源。改用不透明度更高的实色胶囊，
+     视觉上仍是玻璃感，但滚动时零成本。 */
   .tabs {
     display:flex; gap:5px; padding:6px;
     border-radius:999px;
-    background:var(--glass-strong);
+    background:var(--glass-nav);
     border:1px solid var(--glass-border);
-    backdrop-filter:blur(22px) saturate(170%); -webkit-backdrop-filter:blur(22px) saturate(170%);
     box-shadow: var(--shadow-card), var(--glass-inset);
     overflow-x:auto; position:sticky; top:14px; z-index:20;
     margin-bottom:24px;
     scrollbar-width:none;
+  }
+  /* sticky 元素上方 14px 的缝隙会漏出滚过去的内容（看起来像白块/重影）。
+     用一层与导航同色、向上延伸到视口顶部的伪元素把这条缝盖住。 */
+  .tabs::before {
+    content:''; position:absolute; left:0; right:0;
+    top:-15px; height:15px;
+    background:var(--nav-gap);
+    border-radius:14px 14px 0 0;
+    pointer-events:none;
   }
   .tabs::-webkit-scrollbar { display:none; }
   .tabs button {
@@ -1429,19 +1457,19 @@ function buildPage(projects, appItems) {
   .page { display:none; }
   .page.active { display:block; }
 
+  /* 卡片是滚动内容里面积最大的元素。原先整屏十几块都挂 backdrop-filter，
+     滚动时每个都要逐帧重算背景模糊 —— 这正是「白色区域一闪一闪」的根源。
+     背景本身已是柔和径向渐变，去掉模糊后视觉几乎无差别。 */
   .card, .homecard {
     position:relative;
-    background:var(--glass);
+    background:var(--glass-card);
     border:1px solid var(--glass-border);
     border-radius:18px;
-    backdrop-filter:blur(18px) saturate(160%);
-    -webkit-backdrop-filter:blur(18px) saturate(160%);
     box-shadow: var(--shadow-card), var(--glass-inset);
-    transition: border-color .25s ease, box-shadow .3s ease, background .4s ease, transform .25s cubic-bezier(.22,1,.36,1);
+    transition: border-color .25s ease, box-shadow .3s ease;
   }
   .card { padding:20px 20px 22px; margin-bottom:18px; }
   .card:hover, .homecard:hover { border-color:var(--glass-hover-border); box-shadow: var(--glow), var(--glass-inset); }
-  .homecard:hover { transform: translateY(-3px); }
   .card h2 { font-size:16px; margin:0 0 15px; font-weight:750; color:var(--fg-strong); letter-spacing:-.01em; }
   .homecard { padding:18px 20px 20px; display:flex; flex-direction:column; gap:9px; }
   .homecard h3 { font-size:15px; margin:0; font-weight:750; color:var(--fg-strong); }
@@ -1460,7 +1488,6 @@ function buildPage(projects, appItems) {
     border:1px solid var(--input-border);
     background:var(--input-bg); color:var(--fg);
     font-size:14px; outline:none; font-family:inherit;
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     transition:border-color .2s ease, box-shadow .2s ease, background .3s ease;
   }
   input:focus, select:focus, textarea:focus {
@@ -1486,9 +1513,8 @@ function buildPage(projects, appItems) {
   .combo-list {
     position:absolute; z-index:30; left:0; right:0; top:calc(100% + 6px);
     max-height:290px; overflow:auto;
-    background:var(--glass-strong);
+    background:var(--glass-pop);
     border:1px solid var(--glass-border); border-radius:13px;
-    backdrop-filter:blur(24px) saturate(170%); -webkit-backdrop-filter:blur(24px) saturate(170%);
     box-shadow:0 24px 60px -18px rgba(2,6,23,.62), var(--glass-inset);
   }
   .combo-item { padding:9px 13px; font-size:13.5px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -1501,7 +1527,6 @@ function buildPage(projects, appItems) {
     border:1px solid var(--glass-border-soft);
     background:var(--glass-2); color:var(--fg);
     font-size:14px; cursor:pointer; white-space:nowrap; font-family:inherit;
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     transition:border-color .2s ease, background .2s ease, transform .18s ease, box-shadow .22s ease;
   }
   button:hover { border-color:var(--glass-hover-border); background:var(--glass); }
@@ -1536,7 +1561,6 @@ function buildPage(projects, appItems) {
     border-radius:13px; color:var(--code-fg);
     font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.6;
     white-space:pre-wrap; word-break:break-word;
-    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   }
   pre#log { height:400px; }
   .muted { color:var(--muted); }
@@ -1574,10 +1598,9 @@ function buildPage(projects, appItems) {
   .jobitem {
     border:1px solid var(--glass-border-soft); border-radius:12px;
     padding:10px 12px; cursor:pointer; background:var(--glass-2);
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    transition:border-color .2s, background .25s, transform .2s;
+    transition:border-color .2s, background .25s;
   }
-  .jobitem:hover { border-color:var(--glass-hover-border); transform:translateX(2px); }
+  .jobitem:hover { border-color:var(--glass-hover-border); }
   .jobitem.sel { border-color:var(--accent); background:rgba(99,102,241,.15); }
   .jobitem .t1 { font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .jobitem .t2 { font-size:11px; color:var(--muted); margin-top:5px; }
@@ -1596,28 +1619,24 @@ function buildPage(projects, appItems) {
     border:1px solid rgba(244,63,94,.4); background:rgba(244,63,94,.11);
     border-radius:13px; padding:12px 15px; font-size:12.5px;
     color:var(--err-fg); line-height:1.7; margin-bottom:18px;
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .infobox {
     border:1px solid rgba(99,102,241,.4); background:rgba(99,102,241,.12);
     border-radius:13px; padding:12px 15px; font-size:12.5px;
     color:var(--fg); line-height:1.7; margin-bottom:18px;
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   html[data-theme="light"] .infobox { color:#312e81; background:rgba(99,102,241,.1); }
   .okbox {
     border:1px solid rgba(34,197,94,.36); background:rgba(34,197,94,.1);
     border-radius:13px; padding:12px 15px; font-size:12.5px;
     color:var(--ok-fg); line-height:1.7;
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
 
   /* ---------------- Toast ---------------- */
   .toast {
     position:fixed; right:22px; bottom:22px;
-    background:var(--glass-strong); border:1px solid var(--glass-border);
+    background:var(--glass-pop); border:1px solid var(--glass-border);
     border-radius:14px; padding:13px 18px; font-size:13px;
-    backdrop-filter:blur(24px) saturate(170%); -webkit-backdrop-filter:blur(24px) saturate(170%);
     box-shadow:0 26px 60px -20px rgba(2,6,23,.7), var(--glass-inset);
     opacity:0; transform:translateY(10px) scale(.98);
     transition:opacity .26s ease, transform .26s cubic-bezier(.22,1,.36,1);
@@ -1635,8 +1654,11 @@ function buildPage(projects, appItems) {
   @media (prefers-reduced-motion: no-preference) {
     /* 只给页面容器做一次入场，不再给每个子元素加延迟：
        fill-mode:both + 延迟会让子元素在首屏停留在 opacity:0，
-       内容看起来像没渲染出来。 */
-    .page.active { animation: fadeInUp .5s cubic-bezier(.22,1,.36,1) both; }
+       内容看起来像没渲染出来。
+       这里**不用 fill-mode:both**：动画结束态与元素天然状态一致（opacity:1,
+       transform:none），保留 fill 只会让整页永久停留在一个合成层里，
+       滚动时反复重绘超大 layer —— 表现为白块闪烁。 */
+    .page.active { animation: fadeInUp .5s cubic-bezier(.22,1,.36,1); }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
