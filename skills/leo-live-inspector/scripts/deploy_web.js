@@ -1722,6 +1722,58 @@ function buildPage(projects, appItems) {
     .mh-h { font-size:12.5px; }
   }
 
+  /* ---------------- 首页 · 近三周工时 ---------------- */
+  /* 三周并排：上周 / 本周 / 下周各自一张小周历，横向对比看哪天漏了 */
+  .hmh-weeks {
+    display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:14px; margin-top:14px;
+  }
+  .hmh-week {
+    border:1px solid var(--glass-border-soft); border-radius:13px;
+    background:var(--glass-2); padding:11px 12px 12px;
+  }
+  .hmh-head {
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    font-size:12.5px; color:var(--fg); margin-bottom:9px;
+  }
+  .hmh-count { margin-left:auto; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .mh-badge {
+    font-size:11px; font-weight:650; padding:2px 8px; border-radius:999px;
+    white-space:nowrap;
+  }
+  .mh-badge-ok { color:var(--ok-fg); background:rgba(34,197,94,.16); border:1px solid rgba(34,197,94,.34); }
+  .mh-badge-warn { color:var(--warn-fg); background:rgba(245,158,11,.16); border:1px solid rgba(245,158,11,.34); }
+  .mh-badge-err { color:var(--err-fg); background:rgba(244,63,94,.16); border:1px solid rgba(244,63,94,.34); }
+  .mh-badge-idle { color:var(--muted); background:var(--glass-2); border:1px solid var(--glass-border-soft); }
+
+  .hmh-grid {
+    display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px;
+  }
+  .hmh-wd { text-align:center; font-size:10.5px; color:var(--muted); font-weight:650; padding-bottom:2px; }
+  .hmh-cell {
+    min-height:44px; border-radius:8px; padding:4px 5px;
+    border:1px solid var(--glass-border-soft); background:var(--glass-2);
+    display:flex; flex-direction:column; gap:1px;
+    font-variant-numeric:tabular-nums;
+  }
+  .hmh-blank { background:transparent; border-color:transparent; }
+  .hmh-num { font-size:9.5px; color:var(--muted); font-weight:600; line-height:1.2; }
+  .hmh-h { font-size:12.5px; font-weight:750; color:var(--fg-strong); line-height:1.2; }
+
+  /* 图例小圆点 */
+  .mh-legend { display:inline-flex; align-items:center; gap:4px; margin-left:10px; white-space:nowrap; }
+  .mh-dot { width:9px; height:9px; border-radius:3px; border:1px solid var(--glass-border-soft); display:inline-block; }
+  .mh-dot.mh-full { background:rgba(34,197,94,.35); border-color:rgba(34,197,94,.5); }
+  .mh-dot.mh-short { background:rgba(245,158,11,.35); border-color:rgba(245,158,11,.5); }
+  .mh-dot.mh-missing, .mh-dot.mh-over { background:rgba(244,63,94,.32); border-color:rgba(244,63,94,.5); }
+  .mh-dot.mh-off { background:var(--glass-2); opacity:.5; }
+  .mh-dot.mh-pending { background:var(--glass-2); border-style:dashed; opacity:.6; }
+
+  @media (max-width:900px) {
+    .hmh-weeks { grid-template-columns:1fr; }
+    .hmh-cell { min-height:40px; }
+  }
+
   /* ---------------- 响应式 ---------------- */
   @media (max-width:900px) {
     .grid, .split { grid-template-columns:1fr; }
@@ -1749,16 +1801,34 @@ function buildPage(projects, appItems) {
 
   <nav class="tabs" id="tabs" role="tablist">
     <button role="tab" class="active" data-tab="home" aria-selected="true">首页</button>
+    <button role="tab" data-tab="ones" aria-selected="false">ONES 研发</button>
     <button role="tab" data-tab="deploy" aria-selected="false">部署</button>
     <button role="tab" data-tab="logs" aria-selected="false">日志检索</button>
     <button role="tab" data-tab="apollo" aria-selected="false">Apollo 配置</button>
-    <button role="tab" data-tab="ones" aria-selected="false">ONES 研发</button>
     <button role="tab" data-tab="write" aria-selected="false">写操作</button>
     <button role="tab" data-tab="credentials" aria-selected="false">凭据</button>
   </nav>
 
   <!-- ============================ 首页 ============================ -->
   <section class="page active" id="page-home">
+    <div class="card" id="homeManhour">
+      <h2 style="display:flex;align-items:center;gap:10px">
+        工时概览 · 近三周
+        <span class="status" id="homeMhStatus" style="font-weight:500">就绪</span>
+        <button class="ghost" data-goto="ones" style="margin-left:auto;padding:5px 12px;font-size:12px">查看 / 按日期查 →</button>
+      </h2>
+      <div class="hint" style="margin:0 0 4px">
+        固定显示上周、本周、下周，只读不可改日期。每个工作日应正好 1 人天；
+        <span class="mh-legend"><i class="mh-dot mh-full"></i>打满</span>
+        <span class="mh-legend"><i class="mh-dot mh-short"></i>不足</span>
+        <span class="mh-legend"><i class="mh-dot mh-missing"></i>未打</span>
+        <span class="mh-legend"><i class="mh-dot mh-over"></i>超出</span>
+        <span class="mh-legend"><i class="mh-dot mh-off"></i>假</span>
+        <span class="mh-legend"><i class="mh-dot mh-pending"></i>待打</span>
+      </div>
+      <div id="homeMhBody"><div class="combo-empty">加载中…</div></div>
+    </div>
+
     <div class="card">
       <h2>这个控制台能做什么</h2>
       <p class="hint" style="margin-top:0">
@@ -2521,6 +2591,8 @@ function showTab(name) {
   if (name === 'credentials') loadCredentials();
   // ONES 首次进入自动查本周排期
   if (name === 'ones') onesOnEnter();
+  // 首页的三周工时每天都变，每次回来都重新拉
+  if (name === 'home') homeMhRefresh();
 }
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-tab]');
@@ -3702,6 +3774,104 @@ document.querySelectorAll('[data-mh-preset]').forEach(btn => {
   });
 });
 
+// ---- 首页 · 近三周工时概览 ----
+// 首页只读固定窗口（上周 / 本周 / 下周），不给改日期；要自定义区间去 ONES 页。
+let homeMhLoaded = false;
+let homeMhInFlight = false;
+
+const HOME_MH_WEEKS = [
+  { key: 'last',  offset: -1, label: '上周' },
+  { key: 'this',  offset: 0,  label: '本周' },
+  { key: 'next',  offset: 1,  label: '下周' }
+];
+
+/** 三周窗口：上周一 ~ 下周日（21 天），一次请求拿全 */
+function homeMhRange() {
+  return { from: onesWeekRange(-1).from, to: onesWeekRange(1).to };
+}
+
+/** 把逐日数据按周切三段（以周一为界），并各自算小计 */
+function homeMhGroup(days) {
+  return HOME_MH_WEEKS.map(w => {
+    const r = onesWeekRange(w.offset);
+    const list = days.filter(d => d.date >= r.from && d.date <= r.to);
+    const past = list.filter(d => d.isWorkday && !d.isFuture);
+    const full = past.filter(d => d.status === 'full').length;
+    const gap = Math.round(past.reduce((a, d) => a + (1 - d.manHour), 0) * 100) / 100;
+    return { ...w, range: r, days: list, pastCount: past.length, full, gap };
+  });
+}
+
+function homeMhWeek(w) {
+  const label = w.label + ' · ' + w.range.from.slice(5) + ' ~ ' + w.range.to.slice(5);
+  let verdict;
+  // 一整周都还没到（例如下周）：没有「已过工作日」，不能说「已打满」
+  if (w.pastCount === 0) verdict = '<span class="mh-badge mh-badge-idle">未开始</span>';
+  else if (w.gap > 0) verdict = '<span class="mh-badge mh-badge-err">差 ' + w.gap + ' 人天</span>';
+  else if (w.gap < 0) verdict = '<span class="mh-badge mh-badge-warn">多 ' + Math.abs(w.gap) + ' 人天</span>';
+  else verdict = '<span class="mh-badge mh-badge-ok">已打满</span>';
+
+  // 未开始的周不显示「打满 0/0」，那个分母为 0 的比值没有意义
+  const count = w.pastCount ? '打满 ' + w.full + '/' + w.pastCount + ' 天' : '—';
+
+  let h = '<div class="hmh-week">'
+    + '<div class="hmh-head"><b>' + escHtml(label) + '</b>' + verdict
+    + '<span class="hmh-count">' + escHtml(count) + '</span></div>'
+    + '<div class="hmh-grid">';
+
+  ['一', '二', '三', '四', '五', '六', '日'].forEach(x => {
+    h += '<div class="hmh-wd">' + x + '</div>';
+  });
+
+  // 该周数据缺失时补空格，保持列对齐
+  const first = w.days[0];
+  if (first) {
+    const lead = (new Date(first.date + 'T00:00:00').getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) h += '<div class="hmh-cell hmh-blank"></div>';
+  }
+  w.days.forEach(d => {
+    const meta = MH_STATUS_META[d.status] || MH_STATUS_META.pending;
+    const cls = ['hmh-cell', 'mh-' + d.status];
+    if (d.isToday) cls.push('mh-today');
+    h += '<div class="' + cls.join(' ') + '" title="' + escHtml(d.date + ' ' + d.weekDay + ' · ' + meta.label + ' · ' + onesMhDayNote(d)) + '">'
+      + '<span class="hmh-num">' + Number(d.date.slice(8, 10)) + '</span>'
+      + '<span class="hmh-h">' + onesMhCellText(d, d.manHour > 0 ? d.manHour : '') + '</span>'
+      + '</div>';
+  });
+  return h + '</div></div>';
+}
+
+async function homeMhLoad() {
+  if (homeMhLoaded || homeMhInFlight) return;
+  homeMhInFlight = true;
+  const r = homeMhRange();
+  onesStatus('homeMhStatus', '加载中…', 'running');
+  try {
+    const res = await post('/api/ones/query', { cmd: 'manhour', from: r.from, to: r.to, all: true });
+    if (!res.ok) throw new Error(res.error || '查询失败');
+    const d = (res.json && res.json.data) || {};
+    const weeks = homeMhGroup(d.days || []);
+    let html = '<div class="hmh-weeks">';
+    weeks.forEach(w => { html += homeMhWeek(w); });
+    html += '</div>';
+    $('homeMhBody').innerHTML = html;
+    homeMhLoaded = true;
+    onesStatus('homeMhStatus', '完成', 'success');
+  } catch (e) {
+    homeMhLoaded = false;                     // 失败不算加载过，下次回首页重试
+    $('homeMhBody').innerHTML = '<div class="combo-empty">' + escHtml(e.message) + '</div>';
+    onesStatus('homeMhStatus', '失败', 'error');
+  } finally {
+    homeMhInFlight = false;
+  }
+}
+
+/** 回到首页时刷新（工时每天都在变，进首页就该是最新的） */
+function homeMhRefresh() {
+  homeMhLoaded = false;
+  homeMhLoad();
+}
+
 // ---- 我的排期 ----
 // 单次查询要 3~5 秒（要过 ONES 接口）。连点或改完日期马上再点时，晚到的旧响应会覆盖
 // 新结果，看起来就像「改了日期没变化」。用递增序号丢弃过期响应。
@@ -4299,6 +4469,7 @@ async function init() {
     }
   } catch (e) {}
   refreshCredentialStatus();
+  homeMhLoad();
   loadJobs();
   // 恢复最近一次任务日志（服务重启后仍可回看失败原因）
   try {

@@ -125,7 +125,11 @@ function loadPage() {
 
   vm.createContext(sandbox);
   // 内联脚本用 const 声明，vm 里不会挂到 sandbox 上；追加一行显式导出给测试用
-  vm.runInContext(script + '\n;globalThis.__ONES_SCHED_PRESETS = ONES_SCHED_PRESETS;',
+  // 内联脚本用 const 声明，vm 里不会挂到 sandbox 上；追加显式导出给测试用
+  vm.runInContext(script + '\n;globalThis.__ONES_SCHED_PRESETS = ONES_SCHED_PRESETS;'
+    + '\nglobalThis.__homeMhGroup = homeMhGroup;'
+    + '\nglobalThis.__onesWeekRange = onesWeekRange;'
+    + '\nglobalThis.__HOME_MH_WEEKS = HOME_MH_WEEKS;',
     sandbox, { filename: 'deploy_web.inline.js' });
   sandbox.ONES_SCHED_PRESETS = sandbox.__ONES_SCHED_PRESETS;
 
@@ -437,4 +441,104 @@ test('进入 ONES 页默认落在「工时概览」', async () => {
   assert.match(raw, /<button class="on" data-o="manhour">工时概览<\/button>/, '工时概览应是第一个且默认选中');
   assert.match(raw, /id="o-manhour">/, '工时卡片默认可见');
   assert.match(raw, /id="o-schedule" style="display:none"/, '排期卡片默认隐藏');
+});
+
+// ---- 首页 · 近三周工时概览 ----
+
+/** 取页面里算好的三周分组（调用页面作用域的 homeMhGroup / onesWeekRange） */
+function homeWeeks(page, days) {
+  return page.sandbox.__homeMhGroup(days);
+}
+
+/** 生成连续三周（上周一 ~ 下周日，共 21 天）的假数据 */
+function threeWeekDays(today) {
+  const base = new Date(today + 'T00:00:00');
+  const dow = (base.getDay() + 6) % 7;
+  const monday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - dow - 7);
+  const out = [];
+  const pad = n => String(n).padStart(2, '0');
+  for (let i = 0; i < 21; i++) {
+    const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+    const ds = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const isWorkday = d.getDay() >= 1 && d.getDay() <= 5;
+    const isFuture = ds > today;
+    out.push({
+      date: ds,
+      weekDay: '',
+      isWorkday,
+      manHour: isWorkday && !isFuture ? 1 : 0,
+      status: isWorkday ? (isFuture ? 'pending' : 'full') : 'off',
+      statusLabel: '',
+      tone: '',
+      isFuture,
+      isToday: ds === today
+    });
+  }
+  return out;
+}
+
+test('首页三周分成上周 / 本周 / 下周，各 7 天', () => {
+  const page = loadPage();
+  const weeks = homeWeeks(page, threeWeekDays('2026-11-25'));
+  assert.equal(weeks.length, 3);
+  // 跨 vm 沙箱的数组原型不同，deepEqual 会因不走同一 prototype 而失败，逐项比
+  assert.equal(weeks[0].label, '上周');
+  assert.equal(weeks[1].label, '本周');
+  assert.equal(weeks[2].label, '下周');
+  weeks.forEach(w => assert.equal(w.days.length, 7, `${w.label} 应有 7 天`));
+});
+
+test('三周窗口连续不重叠：上周日 +1 = 本周一', () => {
+  const page = loadPage();
+  const weeks = homeWeeks(page, threeWeekDays('2026-11-25'));
+  const [last, thisW, next] = weeks;
+  assert.ok(last.range.to < thisW.range.from);
+  assert.ok(thisW.range.to < next.range.from);
+  assert.equal(last.range.from, '2026-11-16');
+  assert.equal(thisW.range.from, '2026-11-23');
+  assert.equal(next.range.from, '2026-11-30');
+});
+
+test('本周只统计已过工作日，上周全部计入', () => {
+  const page = loadPage();
+  // 2026-11-25 是周三：本周已过工作日 = 周一、周二、周三（今天）
+  const weeks = homeWeeks(page, threeWeekDays('2026-11-25'));
+  assert.equal(weeks[0].pastCount, 5, '上周 5 个工作日全部已过');
+  assert.equal(weeks[1].pastCount, 3, '本周截至周三');
+  assert.equal(weeks[2].pastCount, 0, '下周还没开始');
+});
+
+test('一整周都没到时不报「已打满」（pastCount 为 0）', () => {
+  const page = loadPage();
+  const weeks = homeWeeks(page, threeWeekDays('2026-11-25'));
+  // 下周 pastCount=0 → 页面渲染成「未开始」，而不是 gap=0 推导出的「已打满」
+  assert.equal(weeks[2].pastCount, 0);
+  assert.equal(weeks[2].gap, 0);
+});
+
+test('有未打满的工作日时 gap 大于 0', () => {
+  const page = loadPage();
+  const days = threeWeekDays('2026-11-25');
+  // 把本周周二打 0.3
+  const tue = days.find(d => d.date === '2026-11-24');
+  tue.manHour = 0.3;
+  tue.status = 'short';
+  const weeks = homeWeeks(page, days);
+  assert.equal(weeks[1].gap, 0.7, '本周差 0.7 人天');
+  assert.equal(weeks[1].full, 2, '周一、周三打满');
+});
+
+test('首页不提供日期输入框（只读三周）', () => {
+  const html = renderPage();
+  const homeStart = html.indexOf('id="homeManhour"');
+  const homeEnd = html.indexOf('id="page-ones"');
+  const block = html.slice(homeStart, homeEnd > homeStart ? homeEnd : undefined);
+  assert.ok(homeStart > 0, '首页应有工时卡片');
+  assert.doesNotMatch(block, /<input[^>]*type="date"/, '首页不应有日期输入框');
+});
+
+test('ONES 研发 Tab 紧跟在首页后面', () => {
+  const html = renderPage();
+  const order = [...html.matchAll(/<button role="tab"[^>]*data-tab="([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(order.slice(0, 3), ['home', 'ones', 'deploy']);
 });
