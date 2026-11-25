@@ -129,7 +129,9 @@ function loadPage() {
   vm.runInContext(script + '\n;globalThis.__ONES_SCHED_PRESETS = ONES_SCHED_PRESETS;'
     + '\nglobalThis.__homeMhGroup = homeMhGroup;'
     + '\nglobalThis.__onesWeekRange = onesWeekRange;'
-    + '\nglobalThis.__HOME_MH_WEEKS = HOME_MH_WEEKS;',
+    + '\nglobalThis.__HOME_MH_WEEKS = HOME_MH_WEEKS;'
+    + '\nglobalThis.__homeMhWeek = homeMhWeek;'
+    + '\nglobalThis.__MH_STATUS_META = MH_STATUS_META;',
     sandbox, { filename: 'deploy_web.inline.js' });
   sandbox.ONES_SCHED_PRESETS = sandbox.__ONES_SCHED_PRESETS;
 
@@ -541,4 +543,35 @@ test('ONES 研发 Tab 紧跟在首页后面', () => {
   const html = renderPage();
   const order = [...html.matchAll(/<button role="tab"[^>]*data-tab="([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual(order.slice(0, 3), ['home', 'ones', 'deploy']);
+});
+
+test('首页格子与 ONES 页一致：打满带对号、未打显示 0 带禁止号', () => {
+  const page = loadPage();
+  const week = homeWeeks(page, threeWeekDays('2026-11-25'))[0];   // 上周，全部已过
+  const html = page.sandbox.__homeMhWeek(week);
+
+  // 每个有数据的格子都要有状态图标，否则和 ONES 页的日历不是一套视觉语言
+  const cells = [...html.matchAll(/<div class="hmh-cell[^"]*"[^>]*>([\s\S]*?)<\/div>/g)].map(m => m[1]);
+  assert.equal(cells.length, 7, '上周应有 7 个数据格');
+  cells.forEach(c => assert.match(c, /<span class="hmh-ico">.+?<\/span>/, '每个格子都要有状态图标'));
+
+  const meta = page.sandbox.__MH_STATUS_META;
+  assert.equal(meta.full.icon, '✅');
+  assert.equal(meta.missing.icon, '⛔');
+  assert.match(html, /hmh-cell mh-full/);
+  assert.match(html, /<span class="hmh-ico">✅<\/span>/);
+  // 打满的日子工时显示 1，不显示成空
+  assert.match(html, /<span class="hmh-h">1<\/span>/);
+});
+
+test('首页未打的工作日显示 0 而不是空白', () => {
+  const page = loadPage();
+  const days = threeWeekDays('2026-11-25');
+  const wed = days.find(d => d.date === '2026-11-18');   // 上周三
+  wed.manHour = 0;
+  wed.status = 'missing';
+  const html = page.sandbox.__homeMhWeek(homeWeeks(page, days)[0]);
+
+  assert.match(html, /<span class="hmh-h">0<\/span>/, '未打要明确显示 0');
+  assert.match(html, /<span class="hmh-ico">⛔<\/span>/, '未打要带禁止号');
 });

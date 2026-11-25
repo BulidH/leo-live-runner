@@ -1751,14 +1751,29 @@ function buildPage(projects, appItems) {
   }
   .hmh-wd { text-align:center; font-size:10.5px; color:var(--muted); font-weight:650; padding-bottom:2px; }
   .hmh-cell {
-    min-height:44px; border-radius:8px; padding:4px 5px;
+    min-height:52px; border-radius:8px; padding:4px 5px;
     border:1px solid var(--glass-border-soft); background:var(--glass-2);
     display:flex; flex-direction:column; gap:1px;
     font-variant-numeric:tabular-nums;
   }
   .hmh-blank { background:transparent; border-color:transparent; }
-  .hmh-num { font-size:9.5px; color:var(--muted); font-weight:600; line-height:1.2; }
-  .hmh-h { font-size:12.5px; font-weight:750; color:var(--fg-strong); line-height:1.2; }
+  /* 日期与状态图标同一行：日期靠左、图标靠右，工时在下面一行 */
+  .hmh-top { display:flex; align-items:center; gap:2px; }
+  .hmh-num { font-size:10px; color:var(--muted); font-weight:600; line-height:1.2; }
+  .hmh-ico { margin-left:auto; font-size:10px; line-height:1; opacity:.95; }
+  .hmh-h { font-size:13px; font-weight:750; color:var(--fg-strong); line-height:1.2; }
+
+  /* 状态配色与 ONES 页的 .mh-cell 完全一致，两处看同一个东西不能有两套颜色 */
+  .hmh-cell.mh-full { border-color:rgba(34,197,94,.42); background:rgba(34,197,94,.12); }
+  .hmh-cell.mh-full .hmh-h { color:var(--ok-fg); }
+  .hmh-cell.mh-short { border-color:rgba(245,158,11,.46); background:rgba(245,158,11,.13); }
+  .hmh-cell.mh-short .hmh-h { color:var(--warn-fg); }
+  .hmh-cell.mh-missing, .hmh-cell.mh-over { border-color:rgba(244,63,94,.46); background:rgba(244,63,94,.12); }
+  .hmh-cell.mh-missing .hmh-h, .hmh-cell.mh-over .hmh-h { color:var(--err-fg); }
+  .hmh-cell.mh-overtime { border-color:rgba(6,182,212,.4); background:rgba(6,182,212,.12); }
+  .hmh-cell.mh-off { opacity:.42; }
+  .hmh-cell.mh-pending { opacity:.55; border-style:dashed; }
+  .hmh-cell.mh-today { box-shadow:0 0 0 2px var(--accent), 0 8px 22px -14px var(--accent); }
 
   /* 图例小圆点 */
   .mh-legend { display:inline-flex; align-items:center; gap:4px; margin-left:10px; white-space:nowrap; }
@@ -3834,7 +3849,8 @@ function homeMhWeek(w) {
     const cls = ['hmh-cell', 'mh-' + d.status];
     if (d.isToday) cls.push('mh-today');
     h += '<div class="' + cls.join(' ') + '" title="' + escHtml(d.date + ' ' + d.weekDay + ' · ' + meta.label + ' · ' + onesMhDayNote(d)) + '">'
-      + '<span class="hmh-num">' + Number(d.date.slice(8, 10)) + '</span>'
+      + '<span class="hmh-top"><span class="hmh-num">' + Number(d.date.slice(8, 10)) + '</span>'
+      + '<span class="hmh-ico">' + meta.icon + '</span></span>'
       + '<span class="hmh-h">' + onesMhCellText(d, d.manHour > 0 ? d.manHour : '') + '</span>'
       + '</div>';
   });
