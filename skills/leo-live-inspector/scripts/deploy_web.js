@@ -1664,6 +1664,64 @@ function buildPage(projects, appItems) {
     *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
   }
 
+  /* ---------------- 工时概览日历 ---------------- */
+  /* 用日历格子而不是表格：用户要的是「一眼看出哪天空了」，
+     一片绿里冒出一个红格子，比在表格里找 0 快得多。 */
+  .mh-cal {
+    display:grid; grid-template-columns:repeat(7,minmax(0,1fr));
+    gap:7px; margin-top:16px;
+  }
+  .mh-wd {
+    text-align:center; font-size:11.5px; font-weight:650;
+    color:var(--muted); padding-bottom:2px; letter-spacing:.06em;
+  }
+  .mh-cell {
+    position:relative; min-height:62px; border-radius:11px;
+    border:1px solid var(--glass-border-soft);
+    background:var(--glass-2);
+    padding:6px 8px; display:flex; flex-direction:column; gap:2px;
+    font-variant-numeric:tabular-nums;
+  }
+  .mh-blank { background:transparent; border-color:transparent; }
+  .mh-num { font-size:11px; color:var(--muted); font-weight:600; }
+  .mh-h { font-size:14px; font-weight:750; color:var(--fg-strong); line-height:1.2; }
+  .mh-ico { position:absolute; right:6px; bottom:4px; font-size:11px; opacity:.85; }
+
+  /* 打满：绿；不足：黄；未打 / 超出：红；非工作日：压暗；待打：虚化 */
+  .mh-full { border-color:rgba(34,197,94,.42); background:rgba(34,197,94,.12); }
+  .mh-full .mh-h { color:var(--ok-fg); }
+  .mh-short { border-color:rgba(245,158,11,.46); background:rgba(245,158,11,.13); }
+  .mh-short .mh-h { color:var(--warn-fg); }
+  .mh-missing, .mh-over { border-color:rgba(244,63,94,.46); background:rgba(244,63,94,.12); }
+  .mh-missing .mh-h, .mh-over .mh-h { color:var(--err-fg); }
+  .mh-off { opacity:.42; }
+  .mh-overtime { border-color:rgba(6,182,212,.4); background:rgba(6,182,212,.12); }
+  .mh-pending { opacity:.55; border-style:dashed; }
+  .mh-today { box-shadow:0 0 0 2px var(--accent), 0 8px 22px -14px var(--accent); }
+
+  /* 顶部四个数字卡 */
+  .mh-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:16px; }
+  .mh-stat {
+    border-radius:13px; padding:12px 14px;
+    border:1px solid var(--glass-border-soft);
+    background:var(--glass-2);
+  }
+  .mh-stat-label { font-size:11.5px; color:var(--muted); font-weight:600; letter-spacing:.04em; }
+  .mh-stat-value {
+    margin-top:5px; font-size:24px; font-weight:800; letter-spacing:-.02em;
+    color:var(--fg-strong); font-variant-numeric:tabular-nums;
+  }
+  .mh-stat-unit { font-size:12px; font-weight:600; color:var(--muted); margin-left:4px; }
+  .mh-stat-ok .mh-stat-value { color:var(--ok-fg); }
+  .mh-stat-warn .mh-stat-value { color:var(--warn-fg); }
+  .mh-stat-err .mh-stat-value { color:var(--err-fg); }
+
+  @media (max-width:760px) {
+    .mh-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .mh-cell { min-height:54px; }
+    .mh-h { font-size:12.5px; }
+  }
+
   /* ---------------- 响应式 ---------------- */
   @media (max-width:900px) {
     .grid, .split { grid-template-columns:1fr; }
@@ -1962,6 +2020,7 @@ function buildPage(projects, appItems) {
 
     <div class="subtabs" id="onesTabs">
       <button class="on" data-o="schedule">我的排期</button>
+      <button data-o="manhour">工时概览</button>
       <button data-o="req">需求详情</button>
       <button data-o="reqs">需求检索</button>
       <button data-o="bugs">缺陷检索</button>
@@ -1993,6 +2052,32 @@ function buildPage(projects, appItems) {
         <span class="status" id="oSchedStatus">就绪</span>
       </div>
       <div class="hint">按时间窗过滤估时条目，并按需求聚合交付窗口与总人天。只能查当前登录人（ONES 服务端限制）。快捷区间会直接带上查询，也可以自己改日期后点「查询排期」。</div>
+    </div>
+
+    <div class="card osec" id="o-manhour" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>起始日期</label>
+          <input id="oMhFrom" type="date" />
+        </div>
+        <div class="field">
+          <label>结束日期</label>
+          <input id="oMhTo" type="date" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="oMhQuery">查询工时</button>
+        <span style="width:12px"></span>
+        <button class="ghost" id="oMhThisWeek" data-mh-preset="thisweek">本周</button>
+        <button class="ghost" id="oMhThisMonth" data-mh-preset="thismonth">本月</button>
+        <button class="ghost" id="oMhLastMonth" data-mh-preset="lastmonth">上一月</button>
+        <span class="status" id="oMhStatus">就绪</span>
+      </div>
+      <div class="hint">
+        每个工作日应当正好打满 <b>1 人天</b>。绿色=已打满，黄色=不足，红色=未打 / 超出，灰色=非工作日（法定节假日与调休由 ONES 判定）。
+        未来日期不参与统计，只显示「待打」。
+      </div>
+      <div id="oMhResult"><div class="combo-empty">尚未查询</div></div>
     </div>
 
     <div class="card osec" id="o-req" style="display:none">
@@ -2145,7 +2230,7 @@ function buildPage(projects, appItems) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="oSharedResult">
       <h2 id="oResultTitle">结果</h2>
       <div id="oResult"><div class="combo-empty">尚未查询</div></div>
       <pre class="out" id="oRaw" style="display:none"></pre>
@@ -3437,8 +3522,182 @@ $('onesTabs').addEventListener('click', e => {
   document.querySelectorAll('#page-ones .osec').forEach(s => {
     s.style.display = s.id === 'o-' + b.dataset.o ? '' : 'none';
   });
+  // 「工时概览」把结果画在自己的卡片里（日历 + 汇总），
+  // 共用的结果卡片留着会显示上一次排期的旧内容，这里一并隐藏。
+  const shared = $('oSharedResult');
+  if (shared) shared.style.display = b.dataset.o === 'manhour' ? 'none' : '';
   // 切回「我的排期」时，只有结果还没查过才补一次；查过就原样保留
   if (b.dataset.o === 'schedule') onesSchedAutoQuery();
+  // 工时概览同理：首次进入自动查一次本月
+  if (b.dataset.o === 'manhour') onesMhAutoQuery();
+});
+
+// ---- 工时概览 ----
+// 每个工作日应打满 1 人天。判据（节假日 / 调休）由 ONES 的 is_workday 给出，
+// 页面只负责把「每天打没打满」画清楚。
+let onesMhLoaded = null;      // 已成功渲染过的时间窗
+let onesMhInFlight = false;
+let onesMhSeq = 0;
+
+const MH_STATUS_META = {
+  full:    { icon: '✅', label: '已打满' },
+  short:   { icon: '🟡', label: '不足' },
+  over:    { icon: '🔴', label: '超出' },
+  missing: { icon: '⛔', label: '未打' },
+  off:     { icon: '·',  label: '假' },
+  overtime:{ icon: '🌙', label: '加班' },
+  pending: { icon: '⏳', label: '待打' }
+};
+
+function onesMhAutoQuery() {
+  if (onesMhLoaded || onesMhInFlight) return;
+  if (!$('oMhFrom').value) { const r = ONES_SCHED_PRESETS.thismonth(); $('oMhFrom').value = r.from; $('oMhTo').value = r.to; }
+  if (!$('oMhFrom').value || !$('oMhTo').value) return;
+  $('oMhQuery').click();
+}
+
+/** 一天的提示文案：打满 / 差多少 / 超多少 / 假 / 待打 */
+function onesMhDayNote(d) {
+  if (d.status === 'off') return '非工作日';
+  if (d.status === 'pending') return '还没到';
+  if (d.status === 'overtime') return '非工作日却打了工时';
+  if (d.status === 'full') return '正好打满';
+  if (d.status === 'missing') return '还差 1 人天';
+  const diff = Math.round((1 - d.manHour) * 100) / 100;
+  return diff > 0 ? '还差 ' + diff + ' 人天' : '超出 ' + Math.abs(diff) + ' 人天';
+}
+
+/**
+ * 逐日卡片日历。
+ *
+ * 用日历格子而不是表格，是因为用户的核心诉求是「一眼看出哪天空了」——
+ * 一片绿色里出现一个红格子，比表格里翻一行 0 快得多。
+ */
+function onesMhCalendar(days) {
+  if (!days.length) return '<div class="combo-empty">该时间窗内没有数据</div>';
+  let h = '<div class="mh-cal">';
+  ['一', '二', '三', '四', '五', '六', '日'].forEach(w => { h += '<div class="mh-wd">' + w + '</div>'; });
+
+  // 首日之前补空格，让周一落在第一列
+  const first = new Date(days[0].date + 'T00:00:00');
+  const lead = (first.getDay() + 6) % 7;
+  for (let i = 0; i < lead; i++) h += '<div class="mh-cell mh-blank"></div>';
+
+  days.forEach(d => {
+    const meta = MH_STATUS_META[d.status] || MH_STATUS_META.pending;
+    const cls = ['mh-cell', 'mh-' + d.status];
+    if (d.isToday) cls.push('mh-today');
+    const hours = d.manHour > 0 ? d.manHour : '';
+    h += '<div class="' + cls.join(' ') + '" title="' + escHtml(d.date + ' ' + d.weekDay + ' · ' + meta.label + ' · ' + onesMhDayNote(d)) + '">'
+      + '<span class="mh-num">' + Number(d.date.slice(8, 10)) + '</span>'
+      + '<span class="mh-h">' + onesMhCellText(d, hours) + '</span>'
+      + '<span class="mh-ico">' + meta.icon + '</span>'
+      + '</div>';
+  });
+  return h + '</div>';
+}
+
+/** 格子里那行字：打了几人天 / 假 / 待打 */
+function onesMhCellText(d, hours) {
+  if (d.status === 'off') return '假';
+  if (d.status === 'pending') return '—';       // 还没到，不显示 0，免得像漏打
+  if (d.manHour > 0) return escHtml(hours);
+  return '0';                                    // 该打没打，明确显示 0 而不是一个点
+}
+
+/** 顶部四个数字卡 + 结论条 */
+function onesMhSummary(s) {
+  const cards = [
+    { label: '已记录', value: s.manHours, unit: '人天', tone: 'neutral' },
+    { label: '应打', value: s.expected, unit: '人天', tone: 'neutral' },
+    { label: '打满', value: s.full + ' / ' + s.workdays, unit: '天', tone: 'ok' },
+    { label: '差额', value: (s.gap > 0 ? '-' : (s.gap < 0 ? '+' : '')) + Math.abs(s.gap), unit: '人天', tone: s.gap === 0 ? 'ok' : (s.gap > 0 ? 'err' : 'warn') }
+  ];
+  let h = '<div class="mh-stats">';
+  cards.forEach(c => {
+    h += '<div class="mh-stat mh-stat-' + c.tone + '">'
+      + '<div class="mh-stat-label">' + escHtml(c.label) + '</div>'
+      + '<div class="mh-stat-value">' + escHtml(c.value) + '<span class="mh-stat-unit">' + escHtml(c.unit) + '</span></div>'
+      + '</div>';
+  });
+  h += '</div>';
+
+  if (s.gap > 0) {
+    h += '<div class="warnbox" style="margin:14px 0 0">⚠️ 还有 <b>' + escHtml(s.gap) + ' 人天</b>没打（' + s.unfilled.length + ' 个工作日未打满）。工时必须正好打满，别少也别多。</div>';
+  } else if (s.gap < 0) {
+    h += '<div class="warnbox" style="margin:14px 0 0">⚠️ 已经<b>多打了 ' + escHtml(Math.abs(s.gap)) + ' 人天</b>，超出同样不合规，需要把多出来的部分调到别的日期。</div>';
+  } else {
+    h += '<div class="okbox" style="margin:14px 0 0">✅ 已过去的工作日全部正好打满。</div>';
+  }
+  return h;
+}
+
+$('oMhQuery').addEventListener('click', async () => {
+  const from = $('oMhFrom').value, to = $('oMhTo').value;
+  if (!from || !to) { onesStatus('oMhStatus', '请选择起止日期', 'error'); return; }
+  const seq = ++onesMhSeq;
+  onesMhInFlight = true;
+  $('oMhQuery').disabled = true;
+  onesStatus('oMhStatus', '查询中… ' + from + ' ~ ' + to, 'running');
+  try {
+    // all=true：把未来日期也要回来，日历才能画满整月；未来工作日由 status=pending 区分
+    const r = await post('/api/ones/query', { cmd: 'manhour', from, to, all: true });
+    if (seq !== onesMhSeq) return;
+    if (!r.ok) throw new Error(r.error || '查询失败');
+    const d = (r.json && r.json.data) || {};
+    const days = d.days || [];
+    const summary = d.summary || { manHours: 0, expected: 0, workdays: 0, full: 0, gap: 0, unfilled: [] };
+    onesMhLoaded = { from, to };
+
+    let html = '<div class="hint" style="margin:0 0 12px">' + escHtml(d.person || '') + ' · ' + escHtml(from + ' ~ ' + to) + '</div>';
+    html += onesMhSummary(summary);
+    html += onesMhCalendar(days);
+
+    if (summary.unfilled && summary.unfilled.length) {
+      html += '<h2 style="margin:22px 0 10px">未打满的工作日</h2>';
+      html += onesTable(
+        [{ t: '日期', w: '120px' }, { t: '星期', w: '70px' }, { t: '已打', w: '90px' }, { t: '差额', w: '90px' }, { t: '状态' }],
+        summary.unfilled.map(x => [
+          escHtml(x.date), escHtml(x.weekDay),
+          escHtml(x.manHour) + ' 人天',
+          '<span class="range-cell">' + escHtml(Math.round((1 - x.manHour) * 100) / 100) + ' 人天</span>',
+          (MH_STATUS_META[x.status] || {}).icon + ' ' + escHtml(x.statusLabel)
+        ])
+      );
+    }
+    if (d.pageUrl) {
+      html += '<div class="hint" style="margin-top:14px">🔗 数据来自 ' + onesLink(d.pageUrl, 'ONES 个人统计 · 工时') + '，与页面上的工时明细一致。</div>';
+    }
+    $('oMhResult').innerHTML = html;
+    onesStatus('oMhStatus', '完成', 'success');
+  } catch (e) {
+    if (seq !== onesMhSeq) return;
+    onesMhLoaded = null;
+    $('oMhResult').innerHTML = '<div class="combo-empty">' + escHtml(e.message) + '</div>';
+    onesStatus('oMhStatus', '失败', 'error');
+  } finally {
+    if (seq === onesMhSeq) {
+      onesMhInFlight = false;
+      $('oMhQuery').disabled = false;
+    }
+  }
+});
+
+// 工时页的快捷区间：与排期共用 onesWeekRange / onesMonthRange 的算法
+const ONES_MH_PRESETS = {
+  thisweek: () => onesWeekRange(0),
+  thismonth: () => onesMonthRange(0),
+  lastmonth: () => onesMonthRange(-1)
+};
+document.querySelectorAll('[data-mh-preset]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const fn = ONES_MH_PRESETS[btn.dataset.mhPreset];
+    if (!fn) return;
+    const r = fn();
+    $('oMhFrom').value = r.from;
+    $('oMhTo').value = r.to;
+    $('oMhQuery').click();
+  });
 });
 
 // ---- 我的排期 ----
@@ -4325,6 +4584,11 @@ const server = http.createServer(async (req, res) => {
         args.push('schedule');
         if (b.from) args.push('--from', String(b.from));
         if (b.to) args.push('--to', String(b.to));
+      } else if (cmd === 'manhour') {
+        args.push('manhour');
+        if (b.from) args.push('--from', String(b.from));
+        if (b.to) args.push('--to', String(b.to));
+        if (b.all === true) args.push('--all');
       } else if (cmd === 'req') {
         const key = (b.key || '').trim();
         if (!key) return json(res, 400, { error: '缺少需求 ID 或标题关键词' });

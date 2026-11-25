@@ -79,6 +79,48 @@ node scripts/ones_query.js schedule --with-bugs
 - 用 `ones_query.js reqs --pm <账号>` 查此人作为 PM 的需求；
 - 对单个需求用 `ones_query.js req <id>` 看全员估时明细（`get_estimate_and_schedule_detail` 会返回所有角色成员的估时）。
 
+### 2.3 个人工时概览（每天打没打满）
+
+```bash
+node scripts/ones_query.js manhour                     # 本月
+node scripts/ones_query.js manhour --from 2026-11-01 --to 2026-11-30
+node scripts/ones_query.js manhour --all               # 连未来日期一起列出
+```
+
+接口：`GET /api/bi/get_person_report_distribution?display_name=&start_time=&end_time=`
+
+这是 ONES [个人统计 · 工时](https://ones.ke.com/profile/manhour) 页自己的接口，`display_name` 用「姓名(账号)」格式（如 `孙泽浩(sunzehao003)`）。返回：
+
+```json
+{
+  "display_name": "孙泽浩(sunzehao003)",
+  "total_man_hour": 16.3,
+  "datalist": [
+    { "day": "2026-11-23", "week_day": "周一", "date": "11/23", "man_hour": 1, "is_workday": 1 }
+  ]
+}
+```
+
+**`is_workday` 已经把法定节假日和调休算好了**（国庆 10/1~10/7 为 0，10/10 周六调休上班为 1），不要自己内置节假日表。
+
+判定基准是**每个工作日正好 1 人天**：
+
+| 状态 | 条件 |
+| :--- | :--- |
+| 已打满 | 工作日，`man_hour == 1`（容差 0.005，防浮点误差） |
+| 不足 | 工作日，`0 < man_hour < 1` |
+| 未打 | 工作日，`man_hour == 0` |
+| 超出 | 工作日，`man_hour > 1` |
+| 假 | 非工作日，`man_hour == 0` |
+| 加班 | 非工作日但打了工时 |
+| 待打 | **未来的工作日**（还没到，不能当漏打） |
+
+`summary` 里的 `workdays` 是**已经过去的工作日**，`expected` = 它 × 1，`gap` 为正表示还差多少、为负表示超打，`unfilled` 是按日期升序的未打满清单。未来日期不计入这几个数，否则月初就会显示「打满 1/22 天」。
+
+同期还能取 `/api/bi/get_person_report_summary`（总人天 / 需求 / 缺陷 / 工单拆分、PM/开发/其他占比、提交次数与行数），CLI 在文本模式下会附在末尾，`--json` 里是 `summaryBlock`。
+
+**他人工时查不了**：给别人的 `display_name` 会返回 `man_hour` 全 0 的占位数据，看起来像「这人没打工时」，实际是权限限制。这个能力只做当前登录人。
+
 `category` 只能取 `all / bug / require / approval / onlinebug / trace / onlinecheck / estimate / workorder / cr / onlineplan / feedback`。
 
 ### 2.3 需求详情
@@ -332,6 +374,7 @@ node scripts/ones_modify.js advance <bugId> --event 删除 --confirm
 | 用户说 | AI 执行 |
 | :--- | :--- |
 | 我这个月的排期 / 这周要做什么 | `ones_query.js schedule --from … --to …` |
+| 我的工时打满了没 / 哪天没打满 | `ones_query.js manhour`（默认本月，`--all` 含未来日期） |
 | 查下需求 50564297 / 钥匙箱那个需求什么状态 | `ones_query.js req <id\|关键词>` |
 | IoT-2026-10-27 这个迭代有哪些需求 | `ones_query.js reqs --sprint IoT-2026-10-27` |
 | 这个需求关联了哪些缺陷 | `ones_query.js req <id>`（末段自动带关联缺陷） |

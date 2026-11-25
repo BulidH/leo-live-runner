@@ -86,7 +86,7 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“查下【测试环境】saas 库的订单数据”** | `node scripts/test_mysql_query.js saas "SELECT * FROM algo_detect_report ORDER BY id DESC LIMIT 5"` | 测试环境默认主库直连表格，毫秒级响应 | [database-guide.md](references/database-guide.md) |
 | **“往测试环境 saas 库插一条配置数据 / 更新状态”** | `node scripts/test_mysql_query.js saas "INSERT INTO ..."` / `"UPDATE ... WHERE ..."` | 执行 DML 写入，返回 affectedRows (严格顶层 WHERE 保护) | [database-guide.md](references/database-guide.md) |
 | **“把当前分支构建部署到测试环境”** | **阶段 1 (Pre-flight 预审)**：识别分支与目标泳道，推送部署确认卡片；<br>**阶段 2 (确认后)**：执行 `node scripts/ci_deploy.js` (后端) / `node scripts/feci_deploy.js` (前端) | 自动识别 Git 分支，触发流水线构建并自动部署测试环境 | [ci-deploy-guide.md](references/ci-deploy-guide.md) |
-| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/console.js`（自动打开浏览器） | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、ONES 研发 Tab（排期/需求/缺陷查询 + 两阶段写入）、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
+| **“打开测试环境控制台（网页可视化：部署 + 日志检索 + Apollo + 写操作 + 凭据管理）”** | `node scripts/console.js`（自动打开浏览器） | 启动本地可视化控制台：部署 Tab 完成「选项目 → 选分支 → 合并 QA → 推送 → 触发构建 → 下发测试部署」并自动验活；另有日志检索、Apollo 速查/轨迹、ONES 研发 Tab（排期/**工时概览**/需求/缺陷查询 + 两阶段写入）、测试环境写操作（预检 → 确认两步）、凭据台账（一键刷新登录态） | [deploy-web-guide.md](references/deploy-web-guide.md) |
 
 ### 🖥️ 控制台启动口令（高频，必须按此执行）
 
@@ -127,6 +127,7 @@ description: 线上与测试环境全场景数据探查、全链路排障与配�
 | **“在这个页面上抓数据 / 测一下 / 导出长图”** | `node scripts/cli/index.mjs state` / `eval` / `screenshot` / `net-start` | 驱动真实 Chrome 执行结构化数据抓取与 API 嗅探 (线上一律只读) | [browser-guide.md](references/browser-guide.md) |
 | **“查下钥匙箱 860734086841437 腾讯云状态与最新报文”** | `node scripts/tencent_iot_query.js 860734086841437 -n 5` | 设备在线状态、核心已订阅 Topic 报文解码与流转明细 | [tencent-iot-guide.md](references/tencent-iot-guide.md) |
 | **“看下我这个月/这周的排期”** | `node scripts/ones_query.js schedule --from 2026-11-01 --to 2026-11-30` | 按时窗过滤的估时条目 + 按需求聚合的交付窗口与总人天 | [ones-guide.md](references/ones-guide.md) |
+| **“看下我工时打满了没 / 哪天的工时没打满”** | `node scripts/ones_query.js manhour` (默认本月，可 `--from/--to`) | 逐日工时与判定（打满/不足/未打/超出/假/加班/待打）+ 应打人天、差额、未打满清单 | [ones-guide.md](references/ones-guide.md) |
 | **“查下需求 50564297 / 钥匙箱那个需求什么状态”** | `node scripts/ones_query.js req <id\|标题关键词>` | 状态、优先级、产品经理、迭代、层级、排期、全员估时、关联缺陷、可流转事件 | [ones-guide.md](references/ones-guide.md) |
 | **“IoT-2026-10-27 这个迭代有哪些需求 / 某人负责哪些需求”** | `node scripts/ones_query.js reqs --sprint <迭代\|ID>` / `reqs --pm <账号>` | 需求列表（状态/优先级/迭代/PM/标题），支持层级与标题过滤 | [ones-guide.md](references/ones-guide.md) |
 | **“这个需求关联了哪些缺陷 / 查下某人的缺陷”** | `node scripts/ones_query.js req <id>` / `bugs --resolver <人名>` / `bugs --summary <关键词>` | 关联缺陷列表与缺陷检索（状态/优先级/处理人） | [ones-guide.md](references/ones-guide.md) |

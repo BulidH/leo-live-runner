@@ -6,6 +6,7 @@
  * 覆盖能力：
  *   1. me                       当前登录人画像（工号 / 邮箱 / 组织 / 岗位 / 职级）
  *   2. schedule                 我的排期（按时间窗筛出迭代内的需求与估时条目）
+ *   2b. manhour                 个人工时概览（每天打没打满 / 差值 / 未打满清单）
  *   3. req <id>                 需求详情（状态 / 负责人 / 迭代 / 优先级 / 排期 / 估时 / 关联缺陷）
  *   4. reqs                     需求列表检索（标题 / 迭代 / 产品经理 / 层级 / ID）
  *   5. bugs                     缺陷列表检索（ID / 标题 / 需求 / 处理人 / 迭代）
@@ -33,6 +34,9 @@ import {
   getEnums,
   searchUsers,
   resolveLevel,
+  getMyManHours,
+  getMyManHourSummary,
+  MANHOUR_TARGET,
   ONES_ORIGIN
 } from './common/ones.js';
 
@@ -48,6 +52,8 @@ function printHelp() {
 子命令:
   me                                当前登录人画像
   schedule                          我的排期（可选 --from / --to 时间窗）
+  manhour                           个人工时概览（默认本月；每天打没打满）
+                                    --from/--to 指定窗口，--all 连未来日期一起显示
   req <id|关键词>                   需求详情（含排期、估时、关联缺陷）
   reqs                              需求列表检索
   bugs                              缺陷列表检索
@@ -79,6 +85,8 @@ function printHelp() {
   node scripts/ones_query.js me
   node scripts/ones_query.js schedule --from 2026-11-01 --to 2026-11-30
   node scripts/ones_query.js schedule --with-bugs --json
+  node scripts/ones_query.js manhour
+  node scripts/ones_query.js manhour --from 2026-11-01 --to 2026-11-30 --json
   node scripts/ones_query.js req 50564297
   node scripts/ones_query.js req 钥匙箱 --limit 5
   node scripts/ones_query.js reqs --sprint IoT-2026-10-27
@@ -102,6 +110,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     from: '',
     to: '',
     withBugs: false,
+    all: false,
     id: '',
     title: '',
     sprint: '',
@@ -124,6 +133,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     else if (arg === '--from') options.from = argv[++i] || '';
     else if (arg === '--to') options.to = argv[++i] || '';
     else if (arg === '--with-bugs') options.withBugs = true;
+    else if (arg === '--all') options.all = true;
     else if (arg === '--id') options.id = argv[++i] || '';
     else if (arg === '--title') options.title = argv[++i] || '';
     else if (arg === '--sprint' || arg === '--iteration') options.sprint = argv[++i] || '';
@@ -236,6 +246,68 @@ async function cmdSchedule(opts) {
   }
   return null;
 }
+
+/** 默认看本月：工时是按天打的，月度视图最容易发现哪天漏了 */
+function defaultMonthRange() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const f = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return { from: f(first), to: f(last) };
+}
+
+const STATUS_ICON = {
+  full: '✅', short: '🟡', over: '🔴', missing: '⛔', off: '·', overtime: '🌙', pending: '⏳'
+};
+
+async function cmdManhour(opts) {
+  const range = opts.from && opts.to ? { from: opts.from, to: opts.to } : defaultMonthRange();
+  const [data, summary] = await Promise.all([
+    // --all 时连未来日期一起返回；页面要自己判断哪天是「待打」
+    getMyManHours({ from: range.from, to: range.to, all: Boolean(opts.all), cookie: opts.cookie }),
+    getMyManHourSummary({ from: range.from, to: range.to, cookie: opts.cookie }).catch(() => null)
+  ]);
+  if (opts.json) return { ...data, summaryBlock: summary };
+
+  const s = data.summary;
+  printSection(`⏱️ 个人工时概览 · ${data.person}（${data.range.from} ~ ${data.range.to}）`);
+  console.log(`   时间窗内已记录 ${data.totalManHour} 人天  |  已过工作日 ${s.workdays} 天，应打 ${s.expected} 人天`);
+  console.log(`   打满 ${s.full} 天 · 不足 ${s.short} 天 · 未打 ${s.missing} 天 · 超出 ${s.over} 天 · 加班 ${s.overtime} 天`);
+  if (s.gap > 0) console.log(`   ⚠️ 还差 ${s.gap} 人天没打（${s.unfilled.length} 个工作日未打满）`);
+  else if (s.gap < 0) console.log(`   ⚠️ 已超打 ${Math.abs(s.gap)} 人天，注意别超出`);
+  else console.log('   ✅ 已过工作日全部正好打满');
+
+  const rows = data.days.map(d => {
+    const mark = d.isToday ? ' ← 今天' : '';
+    const label = d.isWorkday ? `${d.manHour} 人天` : (d.manHour > 0 ? `${d.manHour} 人天（加班）` : '假');
+    return [d.date, d.weekDay, STATUS_ICON[d.status] + ' ' + d.statusLabel, label + mark];
+  });
+  printSection(opts.all ? '📅 逐日明细（含未来日期）' : '📅 逐日明细（截至今天）');
+  console.log(table(['日期', '星期', '状态', '工时'], rows));
+
+  if (s.unfilled.length) {
+    printSection(`🩹 未打满的工作日（${s.unfilled.length} 天）`);
+    console.log(table(['日期', '星期', '已打', '差额', '状态'],
+      s.unfilled.map(d => [d.date, d.weekDay, d.manHour, round1(MANHOUR_TARGET - d.manHour), d.statusLabel])));
+  }
+  if (summary) {
+    printSection('📊 同期汇总');
+    console.log(table(['指标', '值'], [
+      ['总人天', summary.totalManHour],
+      ['需求人天', summary.requirementManHour],
+      ['缺陷人天', summary.bugManHour],
+      ['工单人天', summary.workOrderManHour],
+      ['工作性质占比', `PM ${summary.pmShare || '—'} / 开发 ${summary.devShare || '—'} / 其他 ${summary.otherShare || '—'}`],
+      ['参与需求 / 新增缺陷', `${summary.requirementCount} 个 / ${summary.bugAddCount} 个`],
+      ['提交次数 / 行数', `${summary.commitTimes} 次 / ${summary.commitLines} 行`]
+    ]));
+  }
+  console.log(`\n   🔗 ${data.pageUrl}`);
+  return null;
+}
+
+const round1 = n => Math.round((Number(n) || 0) * 10) / 10;
 
 async function cmdReq(opts) {
   const raw = opts.target;
@@ -463,6 +535,7 @@ async function cmdTree(opts) {
 const COMMANDS = {
   me: cmdMe,
   schedule: cmdSchedule,
+  manhour: cmdManhour,
   req: cmdReq,
   reqs: cmdReqs,
   bugs: cmdBugs,

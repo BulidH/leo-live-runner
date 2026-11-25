@@ -8,7 +8,7 @@
 | **部署** | 合并 QA → 推送 → Shipwright 构建 → 下发测试环境；右侧「最近任务」可回看任意历史日志 | `ci_deploy.js` |
 | **日志检索** | 测试环境容器日志 / 生产 FAST-Kibana（只读），按服务+关键词+级别+时间窗查 | `test_log_query.js` / `fast_query.js` |
 | **Apollo 配置** | 配置速查（支持 test/preview/prod 只读）与配置项发布轨迹 | `apollo_query.js` / `apollo_history.js` |
-| **ONES 研发** | 我的排期（默认本周，可翻周；**首次进入自动查一次**）、需求详情、需求检索、缺陷检索、迭代/项目；写入子页含新建需求/缺陷、改排期、移入迭代、状态流转 | `ones_query.js` / `ones_modify.js` |
+| **ONES 研发** | 我的排期（默认本周，可翻周；**首次进入自动查一次**）、**工时概览**（每天打没打满）、需求详情、需求检索、缺陷检索、迭代/项目；写入子页含新建需求/缺陷、改排期、移入迭代、状态流转 | `ones_query.js` / `ones_modify.js` |
 | **写操作** | Apollo 改值与发布、ES 文档改删、Kafka 投递、测试库 SQL —— 全部「预检 → 确认」两步 | `apollo_modify.js` / `es_modify.js` / `kafka_send.js` / `test_mysql_query.js` |
 | **凭据** | 17 项 Cookie / Token 台账（4 个分组）：状态、更新时间、Cookie 名；一键刷新（需登录时在你当前窗口打开普通标签页，登录后自动回读落盘）、手动粘贴、清除、探活 | `credential_relay.js`（本地桥接） |
 
@@ -141,7 +141,7 @@ node scripts/console.js --json             # 结构化输出（含 url/pid/build
 | `POST /api/verify` | 部署后验活：拉近 N 分钟 `ERROR` 日志 |
 | `POST /api/logs` | `source=test` 走 Loki，`source=prod` 走 FAST（只读） |
 | `POST /api/apollo/query` / `/history` | 配置速查 / 发布轨迹 |
-| `POST /api/ones/query` | ONES 只读：`schedule` / `req` / `reqs` / `bugs` / `iterations` / `projects` |
+| `POST /api/ones/query` | ONES 只读：`schedule` / `manhour` / `req` / `reqs` / `bugs` / `iterations` / `projects` |
 | `POST /api/ones/write` | ONES 写入：`confirm=false` 预检，`confirm=true` 才落库 |
 | `POST /api/write/apollo\|es\|kafka\|mysql` | `confirm=false` 预检，`confirm=true` 才写入 |
 | `GET /api/apps` | 服务名候选清单（来自 service catalog） |
@@ -328,3 +328,47 @@ flowchart LR
 月末用「下月 0 日」取，自动处理大小月与闰年。按钮高亮由当前日期窗反查得出，手改日期后自动取消高亮。
 
 实现要点：`onesSchedLoaded` 记录成功渲染过的时间窗，`onesSchedInFlight` 防止并发重复触发；两者都清空才允许自动查询。
+
+### 个人工时概览（每天打没打满）
+
+对应 ONES 的 [个人统计 · 工时](https://ones.ke.com/profile/manhour) 页。诉求是**每天的工时必须正好打满，不能多也不能少**，所以界面要能一眼指出哪天空了。
+
+接口走个人页自己的 `/api/bi/get_person_report_distribution`，它一次返回时间窗内每一天的 `man_hour` 与 `is_workday`：
+
+| 字段 | 用途 |
+| :--- | :--- |
+| `man_hour` | 当天已记录的工时（人天） |
+| `is_workday` | ONES 已算好法定节假日与调休，**不要内置节假日表** |
+| `week_day` / `day` | 星期与日期 |
+
+**判定规则**（`normalizeManhourDays`，`scripts/common/ones.js`）：
+
+| 状态 | 条件 | 颜色 |
+| :--- | :--- | :--- |
+| 已打满 | 工作日且 `man_hour == 1`（容差 0.005） | 绿 |
+| 不足 | 工作日且 `0 < man_hour < 1` | 黄 |
+| 未打 | 工作日且 `man_hour == 0` | 红 |
+| 超出 | 工作日且 `man_hour > 1` | 红 |
+| 假 | 非工作日且 `man_hour == 0` | 灰（压低） |
+| 加班 | 非工作日但打了工时 | 青 |
+| 待打 | **未来的工作日** | 虚线灰 |
+
+关键细节：
+
+- **未来工作日必须是「待打」而不是「漏打」**。`today` 之后的日期在 ONES 里 `man_hour` 恒为 0，直接按「未打」判会在月初就把整月标成一片红。
+- **汇总只统计已经过去的工作日**：`summary.workdays` = 已过工作日数，`expected` = 它 × 1，`gap` 为正表示还差多少、为负表示超打多少。把未来日子算进分母，会让「打满 2/5 天」看起来像欠了工时。
+- **浮点容差**：0.1 + 0.2 累加会得到 0.9999999，`|h - 1| < 0.005` 才算打满，否则会误报「不足」。
+- 界面用**日历格子**而不是表格：一片绿里冒出一个红格子，比在表格里翻找 0 快得多。今天有强调色描边。
+- 「工时概览」把结果画在自己的卡片里，切到该子页时要隐藏共用的 `#oSharedResult`，否则会残留上一次排期的旧结果。
+
+命令行对应 `ones_query.js manhour`：
+
+```bash
+node scripts/ones_query.js manhour                          # 本月
+node scripts/ones_query.js manhour --from 2026-11-01 --to 2026-11-30
+node scripts/ones_query.js manhour --all                    # 连未来日期一起列出
+```
+
+页面默认只显示到「今天」，`--all` / 接口的 `all: true` 才把未来日期也返回（日历要画满整月）。
+
+**他人工时查不了**：`display_name` 传别人的「姓名(账号)」会返回 `man_hour` 全 0 的假数据，不是真的没打工时。所以这个 Tab 只做当前登录人。

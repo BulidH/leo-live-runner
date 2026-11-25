@@ -49,6 +49,8 @@ const KNOWN_API_PATHS = new Set([
   '/api/requirements/moveReq',
   '/api/requirements/estimateCreate',
   '/api/iterations/fetchIterations',
+  '/api/bi/get_person_report_distribution',
+  '/api/bi/get_person_report_summary',
   '/api/bug/get_bugs',
   '/api/bug/saveBug',
   '/api/bug/save_hour',
@@ -504,6 +506,157 @@ export async function getMySchedule({ from, to, person, includeBugs = false, coo
     out.bugs = (bugs?.datalist || []).map(normalizeBug);
   }
   return out;
+}
+
+// ------------------------------------------------------------ 个人工时概览 ----
+
+/** ONES 个人工时页（https://ones.ke.com/profile/manhour）背后的日历接口 */
+export const ONES_MANHOUR_PAGE = ONES_ORIGIN + '/profile/manhour';
+
+/**
+ * 一天的工时判定。
+ *
+ * 判据来自 ONES 自己：`is_workday` 已经算好法定节假日与调休（国庆 10/1~10/7
+ * 是 0，10/10 周六调休上班是 1），不需要我们内置节假日表。
+ *
+ * - 非工作日：有工时记为「加班」，没有记为「假」
+ * - 工作日：等于 1 天记「满」，小于 1 记「不足」，大于 1 记「超量」，0 记「缺」
+ */
+export const MANHOUR_STATUS = {
+  full: { key: 'full', label: '已打满', tone: 'ok' },
+  short: { key: 'short', label: '不足', tone: 'warn' },
+  over: { key: 'over', label: '超出', tone: 'err' },
+  missing: { key: 'missing', label: '未打', tone: 'err' },
+  off: { key: 'off', label: '假', tone: 'muted' },
+  overtime: { key: 'overtime', label: '加班', tone: 'info' },
+  // 未来工作日：还没到，不是「漏打」，不能报成红色告警
+  pending: { key: 'pending', label: '待打', tone: 'muted' }
+};
+
+/** 一天应为多少工时；ONES 默认 1 人天，作为判满基准 */
+export const MANHOUR_TARGET = 1;
+
+const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+
+function classifyDay(manHour, isWorkday) {
+  const h = round2(manHour);
+  if (!isWorkday) return h > 0 ? MANHOUR_STATUS.overtime : MANHOUR_STATUS.off;
+  if (h <= 0) return MANHOUR_STATUS.missing;
+  if (Math.abs(h - MANHOUR_TARGET) < 0.005) return MANHOUR_STATUS.full;
+  return h < MANHOUR_TARGET ? MANHOUR_STATUS.short : MANHOUR_STATUS.over;
+}
+
+/**
+ * 把 distribution 接口的原始行归一化成「每天一条」，并补上判定与汇总。
+ *
+ * 返回的 days 按日期升序，未来日期也会出现（ONES 会返回整段时间窗），
+ * 由上层决定是否隐藏。
+ */
+export function normalizeManhourDays(rows, { today = null } = {}) {
+  const t = today || new Date().toISOString().slice(0, 10);
+  const days = (rows || []).map(r => {
+    const date = String(r.day || '').slice(0, 10);
+    const isWorkday = Number(r.is_workday) === 1;
+    const manHour = round2(r.man_hour);
+    const isFuture = Boolean(date && date > t);
+    // 未来的工作日一律「待打」：还没到那天，不该算成漏打
+    const status = isFuture && isWorkday && manHour <= 0 ? MANHOUR_STATUS.pending : classifyDay(manHour, isWorkday);
+    return {
+      date,
+      weekDay: r.week_day || '',
+      isWorkday,
+      manHour,
+      status: status.key,
+      statusLabel: status.label,
+      tone: status.tone,
+      isFuture,
+      isToday: date === t
+    };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+
+  const workdays = days.filter(d => d.isWorkday && !d.isFuture);
+  const summary = {
+    totalDays: days.length,
+    workdays: workdays.length,
+    manHours: round2(days.reduce((a, d) => a + d.manHour, 0)),
+    // 打满 / 不足 / 未打 只看已经过去的工作日；未来工作日不该算成「未打」
+    full: workdays.filter(d => d.status === 'full').length,
+    short: workdays.filter(d => d.status === 'short').length,
+    missing: workdays.filter(d => d.status === 'missing').length,
+    over: workdays.filter(d => d.status === 'over').length,
+    off: days.filter(d => d.status === 'off').length,
+    overtime: days.filter(d => d.status === 'overtime').length,
+    // 已过工作日的应打工时合计与差额：正数=还差多少，负数=超了多少
+    expected: round2(workdays.length * MANHOUR_TARGET),
+    gap: round2(workdays.reduce((a, d) => a + (MANHOUR_TARGET - d.manHour), 0))
+  };
+  // 「没打满的工作日」按日期列出，方便直接点进去补
+  summary.unfilled = workdays.filter(d => d.status !== 'full')
+    .map(d => ({ date: d.date, weekDay: d.weekDay, manHour: d.manHour, status: d.status, statusLabel: d.statusLabel }));
+  return { days, summary };
+}
+
+/**
+ * 个人工时概览。
+ *
+ * 走 ONES 个人页自己的接口 `/api/bi/get_person_report_distribution`，它一次
+ * 返回时间窗内每一天的 `man_hour` 与 `is_workday`，正好就是「哪天打了多少」。
+ * display_name 用 ONES 的「姓名(账号)」格式，实测与当前登录人一致。
+ */
+export async function getMyManHours({ from, to, displayName = null, today = null, all = false, cookie } = {}) {
+  let name = displayName;
+  if (!name) {
+    const me = await getCurrentUser({ cookie });
+    name = me.displayName;
+    if (me.account && !String(name).includes('(')) name = `${name}(${me.account})`;
+  }
+  const body = await executeOnesApi({
+    path: '/api/bi/get_person_report_distribution',
+    params: { display_name: name, start_time: from, end_time: to },
+    cookie
+  });
+  const { days, summary } = normalizeManhourDays(body?.datalist, { today });
+  // all=false 时裁掉未来日期：页面只需要「已经过去了的日子打没打满」
+  const visible = all ? days : days.filter(d => !d.isFuture);
+  return {
+    person: body?.display_name || name,
+    range: { from: body?.start_time || from, to: body?.end_time || to },
+    totalManHour: round2(body?.total_man_hour),
+    days: visible,
+    summary,
+    pageUrl: ONES_MANHOUR_PAGE
+  };
+}
+
+/** 同一时间窗的工时汇总（总人天 / 需求 / 缺陷 / 工作性质占比），与日历互补 */
+export async function getMyManHourSummary({ from, to, displayName = null, cookie } = {}) {
+  let name = displayName;
+  if (!name) {
+    const me = await getCurrentUser({ cookie });
+    name = me.displayName;
+    if (me.account && !String(name).includes('(')) name = `${name}(${me.account})`;
+  }
+  const body = await executeOnesApi({
+    path: '/api/bi/get_person_report_summary',
+    params: { display_name: name, start_time: from, end_time: to },
+    cookie
+  });
+  return {
+    person: body?.display_name || name,
+    range: { from: String(body?.start_time || from).slice(0, 10), to: String(body?.end_time || to).slice(0, 10) },
+    totalManHour: round2(body?.total_man_hour),
+    requirementManHour: round2(body?.total_requirement_man_hour),
+    bugManHour: round2(body?.total_bug_man_hour),
+    workOrderManHour: round2(body?.total_work_order_man_hour),
+    pmShare: body?.pm_req_hour || '',
+    devShare: body?.dev_req_hour || '',
+    otherShare: body?.other_req_hour || '',
+    requirementCount: body?.partice_req_num ?? 0,
+    bugAddCount: body?.bug_add_num ?? 0,
+    bugResolveCount: body?.bug_resolve_num ?? 0,
+    commitTimes: body?.code_commit_times ?? 0,
+    commitLines: body?.code_commit_lines ?? 0
+  };
 }
 
 export async function queryRequirements({
